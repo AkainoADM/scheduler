@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head><title>Группы</title></head>
+<body>
+<h1>Группы</h1>
+<form method="post" action="/groups/add">
+    <input type="text" name="name" placeholder="Название группы" required>
+    <select name="faculty_id" required>
+        {% for fac in faculties %}
+        <option value="{{ fac.id }}">{{ fac.name }}</option>
+        {% endfor %}
+    </select>
+    <input type="number" name="student_count" placeholder="Количество студентов">
+    <button type="submit">Добавить</button>
+</form>
+<ul>
+{% for g in groups %}
+    <li>{{ g.name }} (Факультет ID: {{ g.faculty_id }}, Студентов: {{ g.student_count }})</li>
+{% endfor %}
+</ul>
+<a href="/">На главную</a>
+</body>
+</html>

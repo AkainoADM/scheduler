@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Аудитории</title>
+</head>
+<body>
+    <h1>Аудитории</h1>
+    <form method="post" action="/audiences/add">
+        <input type="text" name="name" placeholder="Номер/название" required>
+        <input type="number" name="building_id" placeholder="ID здания" required>
+        <input type="number" name="capacity" placeholder="Вместимость">
+        <select name="type">
+            <option value="">Тип</option>
+            <option value="лекционная">Лекционная</option>
+            <option value="практическая">Практическая</option>
+            <option value="лабораторная">Лабораторная</option>
+            <option value="компьютерный класс">Компьютерный класс</option>
+        </select>
+        <label><input type="checkbox" name="is_active" value="true" checked> Активна</label>
+        <button type="submit">Добавить</button>
+    </form>
+    <ul>
+        {% for a in audiences %}
+        <li>{{ a.name }} (Корпус ID: {{ a.building_id }}, Мест: {{ a.capacity or 'не указано' }}, Тип: {{ a.type or 'не указан' }}, Активна: {{ a.is_active }})</li>
+        {% endfor %}
+    </ul>
+    <a href="/">На главную</a>
+</body>
+</html>
