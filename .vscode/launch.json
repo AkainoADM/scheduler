@@ -1,0 +1,23 @@
+{
+    "args": [
+    "app.main:app",
+    "--reload",
+    "--port", "8080" // Поменяй 8000 на 8080
+],
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: FastAPI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "app.main:app", 
+                "--reload"
+            ],
+            "jinja": true
+        }
+        
+    ]
+    
+}

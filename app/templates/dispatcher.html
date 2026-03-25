@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Панель диспетчера</title>
+    <style>
+        body { font-family: sans-serif; background: #eef2f5; padding: 20px; }
+        .day-card { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+        </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 Сводка составителя расписания</h1>
+            <button class="btn" onclick="generateNew()">Сгенерировать новое</button>
+        </div>
+
+        {% for day, pairs in schedule_dict.items() %}
+        <div class="day-card">
+            <h2 class="day-header">{{ day }}</h2>
+            {% for pair_num, items in pairs.items() %}
+            <div class="pair-block">
+                <div class="pair-title">Пара {{ pair_num }}</div>
+                <ul class="parallel-list">
+                    {% for item in items %}
+                    <li>
+                        <strong>{{ item.subject }}</strong> | 
+                        Ауд. {{ item.audience }} | 
+                        Группа {{ item.group }} | 
+                        {{ item.teacher }}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        async function generateNew() {
+            const btn = document.querySelector('.btn');
+            btn.innerText = 'Генерация...';
+            await fetch('/api/generate', { method: 'POST' });
+            window.location.reload();
+        }
+    </script>
+</body>
+</html>
