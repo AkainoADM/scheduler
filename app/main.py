@@ -8,7 +8,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="RASPISANIE API",
     description="Система генерации расписания",
-    version="1.0.0"
+    version="1.0.5"
 )
 
 app.include_router(api.router)
