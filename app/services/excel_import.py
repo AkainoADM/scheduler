@@ -1,16 +1,15 @@
 import io
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from openpyxl import load_workbook
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-
 from app.models.reference import Group, Faculty, Teacher, Audience, Building
 from app.schemas.group import GroupUploadRow
 from app.schemas.teacher import TeacherUploadRow
 from app.schemas.audience import AudienceUploadRow
 from app.schemas.building import BuildingUploadRow
 
-# ---------- Группы (уже есть) ----------
+# ---------- Группы ----------
 async def parse_groups_excel(file_content: bytes) -> List[Dict[str, Any]]:
     wb = load_workbook(filename=io.BytesIO(file_content))
     ws = wb.active
@@ -30,6 +29,7 @@ async def parse_groups_excel(file_content: bytes) -> List[Dict[str, Any]]:
 async def validate_groups_data(rows: List[Dict[str, Any]], db: AsyncSession) -> tuple[List[GroupUploadRow], List[Dict]]:
     valid_rows = []
     errors = []
+    # Проверка существования факультетов
     faculty_ids = set()
     for row in rows:
         if row.get('faculty_id'):
@@ -65,7 +65,11 @@ async def save_groups_from_validated(valid_rows: List[GroupUploadRow], db: Async
             existing.student_count = row.student_count
             updated += 1
         else:
-            group = Group(name=row.name, faculty_id=row.faculty_id, student_count=row.student_count)
+            group = Group(
+                name=row.name,
+                faculty_id=row.faculty_id,
+                student_count=row.student_count
+            )
             db.add(group)
             added += 1
     await db.commit()
@@ -144,13 +148,18 @@ async def parse_audiences_excel(file_content: bytes) -> List[Dict[str, Any]]:
             continue
         row_data = {}
         for col_name, idx in col_idx.items():
-            row_data[col_name] = row[idx]
+            value = row[idx]
+            # Преобразуем name в строку, если это число
+            if col_name == 'name' and value is not None and not isinstance(value, str):
+                value = str(value)
+            row_data[col_name] = value
         rows.append(row_data)
     return rows
 
 async def validate_audiences_data(rows: List[Dict[str, Any]], db: AsyncSession) -> tuple[List[AudienceUploadRow], List[Dict]]:
     valid_rows = []
     errors = []
+    # Проверка существования зданий
     building_ids = set()
     for row in rows:
         if row.get('building_id'):

@@ -31,4 +31,4 @@ class AudienceUploadRow(BaseModel):
     building_id: Optional[int] = Field(None, description="ID здания")
     capacity: Optional[int] = Field(None, description="Вместимость")
     type: Optional[str] = Field(None, description="Тип")
-    is_active: bool = Field(True, description="Активна")
+    is_active: bool = Field(True, description="Активна")  # значение по умолчанию
