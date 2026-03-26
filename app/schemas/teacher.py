@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
 class TeacherResponse(BaseModel):
@@ -25,10 +25,9 @@ class TeacherUpdate(BaseModel):
     max_hours_per_day: Optional[int] = None
     max_hours_per_week: Optional[int] = None
 
-    class TeacherUploadRow(BaseModel):
+class TeacherUploadRow(BaseModel):
     login: str = Field(..., description="Логин")
     name: str = Field(..., description="ФИО")
     url: Optional[str] = Field(None, description="Ссылка")
     max_hours_per_day: Optional[int] = Field(None, description="Макс. часов в день")
     max_hours_per_week: Optional[int] = Field(None, description="Макс. часов в неделю")
-

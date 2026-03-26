@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
 class BuildingResponse(BaseModel):
@@ -16,6 +16,6 @@ class BuildingUpdate(BaseModel):
     name: Optional[str] = None
     address: Optional[str] = None
 
-    class BuildingUploadRow(BaseModel):
+class BuildingUploadRow(BaseModel):
     name: str = Field(..., description="Название здания")
     address: Optional[str] = Field(None, description="Адрес")

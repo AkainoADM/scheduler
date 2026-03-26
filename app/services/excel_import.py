@@ -1,16 +1,16 @@
 import io
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from openpyxl import load_workbook
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from app.models.reference import Group, Teacher, Audience, Building, Faculty
+from app.models.reference import Group, Faculty, Teacher, Audience, Building
 from app.schemas.group import GroupUploadRow
 from app.schemas.teacher import TeacherUploadRow
 from app.schemas.audience import AudienceUploadRow
 from app.schemas.building import BuildingUploadRow
 
-# ---------- Группы ----------
+# ---------- Группы (уже есть) ----------
 async def parse_groups_excel(file_content: bytes) -> List[Dict[str, Any]]:
     wb = load_workbook(filename=io.BytesIO(file_content))
     ws = wb.active
@@ -32,12 +32,12 @@ async def validate_groups_data(rows: List[Dict[str, Any]], db: AsyncSession) -> 
     errors = []
     faculty_ids = set()
     for row in rows:
-        if row.get('faculty_id') is not None:
+        if row.get('faculty_id'):
             faculty_ids.add(row['faculty_id'])
-    existing_faculty_ids = set()
+    existing_faculties = set()
     if faculty_ids:
         result = await db.execute(select(Faculty.id).where(Faculty.id.in_(faculty_ids)))
-        existing_faculty_ids = {r[0] for r in result.all()}
+        existing_faculties = {r[0] for r in result.all()}
     for idx, row in enumerate(rows, start=2):
         try:
             validated = GroupUploadRow(
@@ -45,7 +45,7 @@ async def validate_groups_data(rows: List[Dict[str, Any]], db: AsyncSession) -> 
                 faculty_id=row.get('faculty_id'),
                 student_count=row.get('student_count')
             )
-            if validated.faculty_id not in existing_faculty_ids:
+            if validated.faculty_id not in existing_faculties:
                 errors.append({"row": idx, "error": f"Факультет с id={validated.faculty_id} не найден"})
                 continue
             valid_rows.append(validated)
@@ -153,7 +153,7 @@ async def validate_audiences_data(rows: List[Dict[str, Any]], db: AsyncSession) 
     errors = []
     building_ids = set()
     for row in rows:
-        if row.get('building_id') is not None:
+        if row.get('building_id'):
             building_ids.add(row['building_id'])
     existing_buildings = set()
     if building_ids:
@@ -168,7 +168,7 @@ async def validate_audiences_data(rows: List[Dict[str, Any]], db: AsyncSession) 
                 type=row.get('type'),
                 is_active=row.get('is_active', True)
             )
-            if validated.building_id is not None and validated.building_id not in existing_buildings:
+            if validated.building_id and validated.building_id not in existing_buildings:
                 errors.append({"row": idx, "error": f"Здание с id={validated.building_id} не найдено"})
                 continue
             valid_rows.append(validated)

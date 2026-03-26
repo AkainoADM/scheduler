@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
 class AudienceResponse(BaseModel):
@@ -26,7 +26,7 @@ class AudienceUpdate(BaseModel):
     type: Optional[str] = None
     is_active: Optional[bool] = None
 
-    class AudienceUploadRow(BaseModel):
+class AudienceUploadRow(BaseModel):
     name: str = Field(..., description="Название аудитории")
     building_id: Optional[int] = Field(None, description="ID здания")
     capacity: Optional[int] = Field(None, description="Вместимость")
