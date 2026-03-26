@@ -114,9 +114,22 @@ async def home():
 # ----- Группы -----
 @app.get("/groups", response_class=HTMLResponse)
 async def groups_page(db: AsyncSession = Depends(get_db)):
-    groups = await group_service.get_all_groups(db)
-    faculties = await faculty_service.get_all_faculties(db)
-    return HTMLResponse(content=render_groups_html(groups, faculties))
+    try:
+        groups = await group_service.get_all_groups(db)
+        faculties = await faculty_service.get_all_faculties(db)
+        print(f"DEBUG: groups count = {len(groups)}")
+        print(f"DEBUG: faculties count = {len(faculties)}")
+        # Печатаем первые пару объектов для проверки структуры
+        if groups:
+            print(f"DEBUG: first group: {groups[0].__dict__ if hasattr(groups[0], '__dict__') else groups[0]}")
+        if faculties:
+            print(f"DEBUG: first faculty: {faculties[0].__dict__ if hasattr(faculties[0], '__dict__') else faculties[0]}")
+        html = render_groups_html(groups, faculties)
+        return HTMLResponse(content=html)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return HTMLResponse(content=f"<pre>{traceback.format_exc()}</pre>", status_code=500)
 
 @app.post("/groups/add")
 async def add_group(
