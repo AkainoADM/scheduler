@@ -284,3 +284,11 @@ class UserFaculty(Base):
 
     user = relationship("User")
     faculty = relationship("Faculty")
+
+class Calendar(Base):
+    __tablename__ = "ref_calendar"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, unique=True)
+    is_working_day = Column(Boolean, default=True)
+    week_type = Column(String, nullable=True)
+    description = Column(String, nullable=True) 
