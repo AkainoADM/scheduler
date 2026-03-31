@@ -4,45 +4,113 @@
     <meta charset="UTF-8">
     <title>Панель диспетчера</title>
     <style>
-        body { font-family: sans-serif; background: #eef2f5; padding: 20px; }
-        .day-card { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
-        </style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f9; padding: 20px; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .btn { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn:hover { background: #0056b3; }
+        
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; text-transform: uppercase; font-size: 12px; color: #666; }
+        tr:last-child td { border-bottom: none; }
+        
+        .badge { padding: 5px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .bg-success { background: #d4edda; color: #155724; }
+        .bg-secondary { background: #e2e3e5; color: #383d41; }
+        .text-center { text-align: center; padding: 40px; color: #888; }
+    </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>📋 Сводка составителя расписания</h1>
-            <button class="btn" onclick="generateNew()">Сгенерировать новое</button>
+            <button class="btn" onclick="generateNew()">Сгенерировать расписание</button>
         </div>
 
-        {% for day, pairs in schedule_dict.items() %}
-        <div class="day-card">
-            <h2 class="day-header">{{ day }}</h2>
-            {% for pair_num, items in pairs.items() %}
-            <div class="pair-block">
-                <div class="pair-title">Пара {{ pair_num }}</div>
-                <ul class="parallel-list">
-                    {% for item in items %}
-                    <li>
-                        <strong>{{ item.subject }}</strong> | 
-                        Ауд. {{ item.audience }} | 
-                        Группа {{ item.group }} | 
-                        {{ item.teacher }}
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endfor %}
-        </div>
-        {% endfor %}
-    </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Дата</th>
+                    <th>Пара</th>
+                    <th>Предмет</th>
+                    <th>Группы</th>
+                    <th>Преподаватель</th>
+                    <th>Аудитория</th>
+                    <th>Статус</th>
+                </tr>
+            </thead>
+            <tbody>
+  {% for (date, slot_name), items in grouped_schedules %}
+    {% for item in items %}
+    <tr>
+      {# Выводим Дату и Пару только для первой строки в группе #}
+      {% if loop.first %}
+      <td rowspan="{{ items|length }}" class="align-middle text-nowrap">
+        {{ date.strftime('%d.%m.%Y') }}
+      </td>
+      <td rowspan="{{ items|length }}" class="align-middle text-nowrap">
+        {{ slot_name }}
+      </td>
+      {% endif %}
+
+      {# Эти колонки будут дублироваться для каждого предмета в этом слоте #}
+      <td class="fw-bold">{{ item.lesson.subject }}</td>
+      
+      <td>
+        {% if item.lesson.groups %}
+          {{ item.lesson.groups|map(attribute='name')|join(', ') }}
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </td>
+
+      <td>
+        {% if item.lesson.teachers %}
+          {{ item.lesson.teachers|map(attribute='last_name')|join(' ') }}
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </td>
+
+      <td>
+        <span class="badge bg-light text-dark border">
+          {{ item.audience.name }}
+        </span>
+      </td>
+
+      <td class="text-center">
+        <span class="badge bg-success-subtle text-success">{{ item.status }}</span>
+      </td>
+    </tr>
+    {% endfor %}
+  {% endfor %}
+</tbody>
+{# Группируем записи по дате и ID временного слота #}
+</table>
+</div>
 
     <script>
         async function generateNew() {
             const btn = document.querySelector('.btn');
-            btn.innerText = 'Генерация...';
-            await fetch('/api/generate', { method: 'POST' });
-            window.location.reload();
+            const originalText = btn.innerText;
+            btn.innerText = '⏳ Генерация...';
+            btn.disabled = true;
+            
+            try {
+                // Путь должен совпадать с твоим @app.post в FastAPI
+                const response = await fetch('/api/generate', { method: 'POST' });
+                if (response.ok) {
+                    window.location.reload();
+                } else {
+                    alert('Ошибка при генерации. Проверьте логи сервера.');
+                }
+            } catch (e) {
+                alert('Сетевая ошибка');
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
         }
     </script>
 </body>

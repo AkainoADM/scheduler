@@ -1,42 +1,34 @@
+from sched import scheduler
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from ..database import get_db
-from ..models import ScheduleItem
-
+from ..models import Lesson, ScheduleItem
+from itertools import groupby
+from collections import defaultdict
 router = APIRouter(prefix="/schedule", tags=["Schedule"])
 templates = Jinja2Templates(directory="app/templates")
 
-@router.get("/dispatcher", response_class=HTMLResponse)
+@router.get("/dispatcher")
 def view_dispatcher_schedule(request: Request, db: Session = Depends(get_db)):
-    items = db.query(ScheduleItem).all()
-    
-    schedule_data = {}
-    
-    for item in items:
-        lesson = item.lesson
-        slot_name = item.time_slot.name if item.time_slot else f"Пара {item.time_slot_id}"
-        date_str = str(item.date) if item.date is not None else "Неизвестная дата"
-        teachers_str = ", ".join([t.name for t in lesson.teachers]) if lesson.teachers else "Не назначен"
-        groups_str = ", ".join([g.name for g in lesson.groups]) if lesson.groups else "Нет группы"
-        audience_str = item.audience.name if item.audience else "---"
+    # 1. Получаем отсортированные данные
+    schedules = db.query(ScheduleItem).options(
+        joinedload(ScheduleItem.lesson).joinedload(Lesson.groups),
+        joinedload(ScheduleItem.lesson).joinedload(Lesson.teachers),
+        joinedload(ScheduleItem.time_slot),
+        joinedload(ScheduleItem.audience)
+    ).order_by(ScheduleItem.date, ScheduleItem.time_slot_id).all()
 
-        if date_str not in schedule_data:
-            schedule_data[date_str] = {}
-            
-        if slot_name not in schedule_data[date_str]:
-            schedule_data[date_str][slot_name] = []
+    # 2. Группируем в Python (сохраняя порядок сортировки)
+    grouped_data = defaultdict(list)
+    for item in schedules:
+        # Используем дату и имя слота как ключ для группировки
+        key = (item.date, item.time_slot.name)
+        grouped_data[key].append(item)
 
-        schedule_data[date_str][slot_name].append({
-            "subject": lesson.subject if lesson else "---",
-            "group": groups_str,
-            "audience": audience_str,
-            "teacher": teachers_str,
-            "type": lesson.type if lesson else ""
-        })
-
+    # 3. Передаем в шаблон .items() (это список кортежей [((дата, слот), [items...]), ...])
     return templates.TemplateResponse("dispatcher.html", {
-        "request": request,
-        "schedule_dict": schedule_data
+        "request": request, 
+        "grouped_schedules": grouped_data.items()
     })
