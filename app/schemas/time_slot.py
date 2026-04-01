@@ -1,24 +1,25 @@
-from pydantic import BaseModel, ConfigDict
-from typing import Optional
+from pydantic import BaseModel
 from datetime import time
+from typing import Optional
 
 class TimeSlotResponse(BaseModel):
     id: int
-    slot_number: Optional[int] = None
-    name: Optional[str] = None
-    start_time: Optional[time] = None
-    end_time: Optional[time] = None
+    slot_number: int
+    name: str
+    start_time: time
+    end_time: time
     duration_minutes: Optional[int] = None
     break_after_minutes: Optional[int] = None
     is_active: bool = True
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
 
 class TimeSlotCreate(BaseModel):
-    slot_number: Optional[int] = None
-    name: Optional[str] = None
-    start_time: Optional[time] = None
-    end_time: Optional[time] = None
+    slot_number: int
+    name: str
+    start_time: time
+    end_time: time
     duration_minutes: Optional[int] = None
     break_after_minutes: Optional[int] = None
     is_active: bool = True

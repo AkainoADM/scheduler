@@ -1,11 +1,12 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from typing import Optional
 
 class SubdivisionResponse(BaseModel):
     id: int
     name: str
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
 
 class SubdivisionCreate(BaseModel):
     name: str

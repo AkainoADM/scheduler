@@ -2,9 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app.models.reference import TimeSlot
 from app.schemas.time_slot import TimeSlotCreate, TimeSlotUpdate
+from typing import List
 
 async def get_all_time_slots(db: AsyncSession):
-    result = await db.execute(select(TimeSlot))
+    result = await db.execute(select(TimeSlot).order_by(TimeSlot.slot_number))
     return result.scalars().all()
 
 async def get_time_slot(db: AsyncSession, slot_id: int):
@@ -26,4 +27,8 @@ async def update_time_slot(db: AsyncSession, slot_id: int, data: TimeSlotUpdate)
 
 async def delete_time_slot(db: AsyncSession, slot_id: int) -> None:
     await db.execute(delete(TimeSlot).where(TimeSlot.id == slot_id))
+    await db.commit()
+
+async def bulk_delete_time_slots(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(TimeSlot).where(TimeSlot.id.in_(ids)))
     await db.commit()

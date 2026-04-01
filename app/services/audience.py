@@ -2,7 +2,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app.models.reference import Audience
 from app.schemas.audience import AudienceCreate, AudienceUpdate
+from typing import List
+from sqlalchemy import select, update, delete
+from app.models.reference import Audience
+from app.schemas.audience import AudienceCreate, AudienceUpdate
 
+# ... функции
+async def bulk_delete_audiences(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(Audience).where(Audience.id.in_(ids)))
+    await db.commit()
+    
 async def get_all_audiences(db: AsyncSession):
     result = await db.execute(select(Audience))
     return result.scalars().all()
@@ -26,4 +35,8 @@ async def update_audience(db: AsyncSession, audience_id: int, data: AudienceUpda
 
 async def delete_audience(db: AsyncSession, audience_id: int) -> None:
     await db.execute(delete(Audience).where(Audience.id == audience_id))
+    await db.commit()
+
+async def bulk_delete_audiences(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(Audience).where(Audience.id.in_(ids)))
     await db.commit()

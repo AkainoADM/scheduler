@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from typing import Optional
 
 class RoleResponse(BaseModel):
@@ -6,7 +6,8 @@ class RoleResponse(BaseModel):
     role_name: str
     description: Optional[str] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
 
 class RoleCreate(BaseModel):
     role_name: str

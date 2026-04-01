@@ -2,6 +2,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app.models.reference import Group
 from app.schemas.group import GroupCreate, GroupUpdate
+from typing import List
+from sqlalchemy import select, update, delete
+from app.models.reference import Group
+from app.schemas.group import GroupCreate, GroupUpdate
+
+# ... остальные функции
+async def bulk_delete_groups(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(Group).where(Group.id.in_(ids)))
+    await db.commit()
 
 async def get_all_groups(db: AsyncSession):
     result = await db.execute(select(Group))
@@ -26,4 +35,10 @@ async def update_group(db: AsyncSession, group_id: int, data: GroupUpdate) -> Gr
 
 async def delete_group(db: AsyncSession, group_id: int) -> None:
     await db.execute(delete(Group).where(Group.id == group_id))
+    await db.commit()
+
+from sqlalchemy import delete
+
+async def bulk_delete_groups(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(Group).where(Group.id.in_(ids)))
     await db.commit()

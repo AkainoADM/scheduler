@@ -2,9 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app.models.reference import Subdivision
 from app.schemas.subdivision import SubdivisionCreate, SubdivisionUpdate
+from typing import List
 
 async def get_all_subdivisions(db: AsyncSession):
-    result = await db.execute(select(Subdivision))
+    result = await db.execute(select(Subdivision).order_by(Subdivision.id))
     return result.scalars().all()
 
 async def get_subdivision(db: AsyncSession, sub_id: int):
@@ -26,4 +27,8 @@ async def update_subdivision(db: AsyncSession, sub_id: int, data: SubdivisionUpd
 
 async def delete_subdivision(db: AsyncSession, sub_id: int) -> None:
     await db.execute(delete(Subdivision).where(Subdivision.id == sub_id))
+    await db.commit()
+
+async def bulk_delete_subdivisions(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(Subdivision).where(Subdivision.id.in_(ids)))
     await db.commit()

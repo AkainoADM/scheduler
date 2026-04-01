@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from typing import Optional
 
 class FacultyResponse(BaseModel):
@@ -7,7 +7,8 @@ class FacultyResponse(BaseModel):
     display_name: Optional[str] = None
     short_display_name: Optional[str] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
 
 class FacultyCreate(BaseModel):
     name: str

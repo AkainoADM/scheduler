@@ -1,17 +1,18 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from typing import Optional
 
 class UserTypeResponse(BaseModel):
     id: int
     code: str
-    name: Optional[str] = None
+    name: str
     description: Optional[str] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
 
 class UserTypeCreate(BaseModel):
     code: str
-    name: Optional[str] = None
+    name: str
     description: Optional[str] = None
 
 class UserTypeUpdate(BaseModel):

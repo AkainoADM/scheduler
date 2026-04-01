@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.services import faculty as faculty_service
 from app.schemas.faculty import FacultyCreate, FacultyResponse, FacultyUpdate
+from typing import List
 
 router = APIRouter(prefix="/faculties", tags=["Faculties"])
 
@@ -31,4 +32,9 @@ async def update_faculty(faculty_id: int, data: FacultyUpdate, db: AsyncSession 
 @router.delete("/{faculty_id}")
 async def delete_faculty(faculty_id: int, db: AsyncSession = Depends(get_db)):
     await faculty_service.delete_faculty(db, faculty_id)
+    return {"ok": True}
+
+@router.post("/bulk-delete")
+async def bulk_delete_faculties(ids: List[int], db: AsyncSession = Depends(get_db)):
+    await faculty_service.bulk_delete_faculties(db, ids)
     return {"ok": True}

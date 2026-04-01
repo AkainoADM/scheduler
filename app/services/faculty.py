@@ -2,9 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app.models.reference import Faculty
 from app.schemas.faculty import FacultyCreate, FacultyUpdate
+from typing import List
 
 async def get_all_faculties(db: AsyncSession):
-    result = await db.execute(select(Faculty))
+    result = await db.execute(select(Faculty).order_by(Faculty.id))
     return result.scalars().all()
 
 async def get_faculty(db: AsyncSession, faculty_id: int):
@@ -26,4 +27,8 @@ async def update_faculty(db: AsyncSession, faculty_id: int, data: FacultyUpdate)
 
 async def delete_faculty(db: AsyncSession, faculty_id: int) -> None:
     await db.execute(delete(Faculty).where(Faculty.id == faculty_id))
+    await db.commit()
+
+async def bulk_delete_faculties(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(Faculty).where(Faculty.id.in_(ids)))
     await db.commit()

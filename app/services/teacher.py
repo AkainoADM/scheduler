@@ -2,6 +2,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app.models.reference import Teacher
 from app.schemas.teacher import TeacherCreate, TeacherUpdate
+from typing import List
+from sqlalchemy import select, update, delete
+from app.models.reference import Teacher
+from app.schemas.teacher import TeacherCreate, TeacherUpdate
+
+# ... функции
+async def bulk_delete_teachers(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(Teacher).where(Teacher.id.in_(ids)))
+    await db.commit()
 
 async def get_all_teachers(db: AsyncSession):
     result = await db.execute(select(Teacher))
@@ -26,4 +35,8 @@ async def update_teacher(db: AsyncSession, teacher_id: int, data: TeacherUpdate)
 
 async def delete_teacher(db: AsyncSession, teacher_id: int) -> None:
     await db.execute(delete(Teacher).where(Teacher.id == teacher_id))
+    await db.commit()
+
+async def bulk_delete_teachers(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(Teacher).where(Teacher.id.in_(ids)))
     await db.commit()

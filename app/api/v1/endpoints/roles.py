@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.services import role as role_service
 from app.schemas.role import RoleCreate, RoleResponse, RoleUpdate
+from typing import List
 
 router = APIRouter(prefix="/roles", tags=["Roles"])
 
@@ -31,4 +32,9 @@ async def update_role(role_id: int, data: RoleUpdate, db: AsyncSession = Depends
 @router.delete("/{role_id}")
 async def delete_role(role_id: int, db: AsyncSession = Depends(get_db)):
     await role_service.delete_role(db, role_id)
+    return {"ok": True}
+
+@router.post("/bulk-delete")
+async def bulk_delete_roles(ids: List[int], db: AsyncSession = Depends(get_db)):
+    await role_service.bulk_delete_roles(db, ids)
     return {"ok": True}

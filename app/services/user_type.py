@@ -2,9 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app.models.reference import UserType
 from app.schemas.user_type import UserTypeCreate, UserTypeUpdate
+from typing import List
 
 async def get_all_user_types(db: AsyncSession):
-    result = await db.execute(select(UserType))
+    result = await db.execute(select(UserType).order_by(UserType.id))
     return result.scalars().all()
 
 async def get_user_type(db: AsyncSession, ut_id: int):
@@ -26,4 +27,8 @@ async def update_user_type(db: AsyncSession, ut_id: int, data: UserTypeUpdate) -
 
 async def delete_user_type(db: AsyncSession, ut_id: int) -> None:
     await db.execute(delete(UserType).where(UserType.id == ut_id))
+    await db.commit()
+
+async def bulk_delete_user_types(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(UserType).where(UserType.id.in_(ids)))
     await db.commit()

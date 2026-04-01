@@ -2,9 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app.models.reference import Role
 from app.schemas.role import RoleCreate, RoleUpdate
+from typing import List
 
 async def get_all_roles(db: AsyncSession):
-    result = await db.execute(select(Role))
+    result = await db.execute(select(Role).order_by(Role.id))
     return result.scalars().all()
 
 async def get_role(db: AsyncSession, role_id: int):
@@ -26,4 +27,8 @@ async def update_role(db: AsyncSession, role_id: int, data: RoleUpdate) -> Role 
 
 async def delete_role(db: AsyncSession, role_id: int) -> None:
     await db.execute(delete(Role).where(Role.id == role_id))
+    await db.commit()
+
+async def bulk_delete_roles(db: AsyncSession, ids: List[int]) -> None:
+    await db.execute(delete(Role).where(Role.id.in_(ids)))
     await db.commit()
