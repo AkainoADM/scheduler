@@ -1,10 +1,10 @@
 import os
-from fastapi import FastAPI, Depends, Form
+from datetime import date
+from fastapi import FastAPI, Depends, Form, Request, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from fastapi import FastAPI, Depends, Form, Request   # добавьте Request
-from fastapi import FastAPI, Depends, Form, BackgroundTasks
+
 from app.api.v1 import router as v1_router
 from app.core.database import get_db
 from app.services import group as group_service
@@ -12,14 +12,13 @@ from app.services import teacher as teacher_service
 from app.services import audience as audience_service
 from app.services import faculty as faculty_service
 from app.services import building as building_service
+from app.services import calendar as calendar_service
+from app.services import calendar_sync
 from app.schemas.group import GroupCreate, GroupUpdate
 from app.schemas.teacher import TeacherCreate, TeacherUpdate
 from app.schemas.audience import AudienceCreate, AudienceUpdate
 from app.schemas.building import BuildingCreate, BuildingUpdate
-
-from app.services import calendar as calendar_service
 from app.schemas.calendar import CalendarCreate, CalendarUpdate
-from datetime import date
 
 app = FastAPI(title="Schedule Generation System")
 app.include_router(v1_router)
@@ -102,6 +101,34 @@ def render_buildings_html(buildings):
     html += "<a href='/'>На главную</a>"
     return html
 
+def render_calendar_html(entries):
+    html = "<h1>Календарь (учебные дни, праздники)</h1>"
+    html += "<h2>Добавить запись</h2>"
+    html += "<form method='post' action='/calendar/add'>"
+    html += "<input type='date' name='date' required>"
+    html += "<select name='is_working_day'><option value='true'>Рабочий день</option><option value='false'>Выходной/праздник</option></select>"
+    html += "<input type='text' name='description' placeholder='Описание'>"
+    html += "<button type='submit'>Добавить</button>"
+    html += "</form>"
+
+    html += "<h2>Синхронизация с официальным календарем</h2>"
+    html += "<form method='post' action='/calendar/sync'>"
+    html += "<input type='number' name='year' placeholder='Год (например, 2025)' required>"
+    html += "<button type='submit'>Загрузить данные за год</button>"
+    html += "</form>"
+
+    html += "<h2>Список записей</h2>"
+    html += "<ul>"
+    for e in entries:
+        html += f"<li>{e.date} – {'Рабочий' if e.is_working_day else 'Выходной'} "
+        if e.description:
+            html += f"— {e.description} "
+        html += f"<a href='/calendar/edit/{e.id}'>Редактировать</a> "
+        html += f"<a href='/calendar/delete/{e.id}'>Удалить</a></li>"
+    html += "</ul>"
+    html += "<a href='/'>На главную</a>"
+    return html
+
 # ---------- Страницы ----------
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -112,7 +139,7 @@ async def home():
         <li><a href='/teachers'>Преподаватели</a></li>
         <li><a href='/audiences'>Аудитории</a></li>
         <li><a href='/buildings'>Здания</a></li>
-        <li><a href='/calendar'>Календарь</a></li>  <!-- Новая ссылка -->
+        <li><a href='/calendar'>Календарь</a></li>
         <li><a href='/docs'>Swagger API</a></li>
         <li><a href='/generate-schedule'>Сгенерировать расписание (вызов сервера коллеги)</a></li>
         <li><a href='/get-schedule'>Получить расписание (JSON)</a></li>
@@ -127,13 +154,6 @@ async def groups_page(db: AsyncSession = Depends(get_db)):
     try:
         groups = await group_service.get_all_groups(db)
         faculties = await faculty_service.get_all_faculties(db)
-        print(f"DEBUG: groups count = {len(groups)}")
-        print(f"DEBUG: faculties count = {len(faculties)}")
-        # Печатаем первые пару объектов для проверки структуры
-        if groups:
-            print(f"DEBUG: first group: {groups[0].__dict__ if hasattr(groups[0], '__dict__') else groups[0]}")
-        if faculties:
-            print(f"DEBUG: first faculty: {faculties[0].__dict__ if hasattr(faculties[0], '__dict__') else faculties[0]}")
         html = render_groups_html(groups, faculties)
         return HTMLResponse(content=html)
     except Exception as e:
@@ -141,7 +161,7 @@ async def groups_page(db: AsyncSession = Depends(get_db)):
         traceback.print_exc()
         return HTMLResponse(content=f"<pre>{traceback.format_exc()}</pre>", status_code=500)
 
-@app.post("/groups/add")
+@app.post("/groups/add", response_model=None)
 async def add_group(
     name: str = Form(...),
     faculty_id: int = Form(...),
@@ -172,7 +192,7 @@ async def edit_group_form(group_id: int, db: AsyncSession = Depends(get_db)):
     """
     return HTMLResponse(content=html)
 
-@app.post("/groups/edit/{group_id}")
+@app.post("/groups/edit/{group_id}", response_model=None)
 async def edit_group(
     group_id: int,
     name: str = Form(...),
@@ -198,7 +218,7 @@ async def confirm_delete_group(group_id: int, db: AsyncSession = Depends(get_db)
     """
     return HTMLResponse(content=html)
 
-@app.post("/groups/delete/{group_id}")
+@app.post("/groups/delete/{group_id}", response_model=None)
 async def delete_group(group_id: int, db: AsyncSession = Depends(get_db)):
     await group_service.delete_group(db, group_id)
     return RedirectResponse(url="/groups", status_code=303)
@@ -209,7 +229,7 @@ async def teachers_page(db: AsyncSession = Depends(get_db)):
     teachers = await teacher_service.get_all_teachers(db)
     return HTMLResponse(content=render_teachers_html(teachers))
 
-@app.post("/teachers/add")
+@app.post("/teachers/add", response_model=None)
 async def add_teacher(
     login: str = Form(...),
     name: str = Form(...),
@@ -241,7 +261,7 @@ async def edit_teacher_form(teacher_id: int, db: AsyncSession = Depends(get_db))
     """
     return HTMLResponse(content=html)
 
-@app.post("/teachers/edit/{teacher_id}")
+@app.post("/teachers/edit/{teacher_id}", response_model=None)
 async def edit_teacher(
     teacher_id: int,
     login: str = Form(...),
@@ -269,7 +289,7 @@ async def confirm_delete_teacher(teacher_id: int, db: AsyncSession = Depends(get
     """
     return HTMLResponse(content=html)
 
-@app.post("/teachers/delete/{teacher_id}")
+@app.post("/teachers/delete/{teacher_id}", response_model=None)
 async def delete_teacher(teacher_id: int, db: AsyncSession = Depends(get_db)):
     await teacher_service.delete_teacher(db, teacher_id)
     return RedirectResponse(url="/teachers", status_code=303)
@@ -281,7 +301,7 @@ async def audiences_page(db: AsyncSession = Depends(get_db)):
     buildings = await building_service.get_all_buildings(db)
     return HTMLResponse(content=render_audiences_html(audiences, buildings))
 
-@app.post("/audiences/add")
+@app.post("/audiences/add", response_model=None)
 async def add_audience(
     name: str = Form(...),
     building_id: int = Form(None),
@@ -323,7 +343,7 @@ async def edit_audience_form(audience_id: int, db: AsyncSession = Depends(get_db
     """
     return HTMLResponse(content=html)
 
-@app.post("/audiences/edit/{audience_id}")
+@app.post("/audiences/edit/{audience_id}", response_model=None)
 async def edit_audience(
     audience_id: int,
     name: str = Form(...),
@@ -351,7 +371,7 @@ async def confirm_delete_audience(audience_id: int, db: AsyncSession = Depends(g
     """
     return HTMLResponse(content=html)
 
-@app.post("/audiences/delete/{audience_id}")
+@app.post("/audiences/delete/{audience_id}", response_model=None)
 async def delete_audience(audience_id: int, db: AsyncSession = Depends(get_db)):
     await audience_service.delete_audience(db, audience_id)
     return RedirectResponse(url="/audiences", status_code=303)
@@ -362,7 +382,7 @@ async def buildings_page(db: AsyncSession = Depends(get_db)):
     buildings = await building_service.get_all_buildings(db)
     return HTMLResponse(content=render_buildings_html(buildings))
 
-@app.post("/buildings/add")
+@app.post("/buildings/add", response_model=None)
 async def add_building(
     name: str = Form(...),
     address: str = Form(None),
@@ -388,7 +408,7 @@ async def edit_building_form(building_id: int, db: AsyncSession = Depends(get_db
     """
     return HTMLResponse(content=html)
 
-@app.post("/buildings/edit/{building_id}")
+@app.post("/buildings/edit/{building_id}", response_model=None)
 async def edit_building(
     building_id: int,
     name: str = Form(...),
@@ -413,10 +433,86 @@ async def confirm_delete_building(building_id: int, db: AsyncSession = Depends(g
     """
     return HTMLResponse(content=html)
 
-@app.post("/buildings/delete/{building_id}")
+@app.post("/buildings/delete/{building_id}", response_model=None)
 async def delete_building(building_id: int, db: AsyncSession = Depends(get_db)):
     await building_service.delete_building(db, building_id)
     return RedirectResponse(url="/buildings", status_code=303)
+
+# ----- Календарь -----
+@app.get("/calendar", response_class=HTMLResponse)
+async def calendar_page(db: AsyncSession = Depends(get_db)):
+    entries = await calendar_service.get_all_calendar(db)
+    return HTMLResponse(content=render_calendar_html(entries))
+
+@app.post("/calendar/add", response_model=None)
+async def add_calendar_entry(
+    date: date = Form(...),
+    is_working_day: bool = Form(True),
+    description: str = Form(None),
+    db: AsyncSession = Depends(get_db)
+):
+    data = CalendarCreate(date=date, is_working_day=is_working_day, description=description)
+    await calendar_service.create_calendar_entry(db, data)
+    return RedirectResponse(url="/calendar", status_code=303)
+
+@app.post("/calendar/sync", response_model=None)
+async def sync_calendar_web(
+    year: int = Form(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+):
+    background_tasks.add_task(calendar_sync.sync_calendar_for_year, year)
+    return RedirectResponse(url="/calendar", status_code=303)
+
+@app.get("/calendar/edit/{entry_id}", response_class=HTMLResponse)
+async def edit_calendar_form(entry_id: int, db: AsyncSession = Depends(get_db)):
+    entry = await calendar_service.get_calendar_entry(db, entry_id)
+    if not entry:
+        return HTMLResponse("Запись не найдена", status_code=404)
+    html = f"""
+    <h1>Редактировать запись календаря</h1>
+    <form method="post" action="/calendar/edit/{entry_id}">
+        <input type="date" name="date" value="{entry.date}" required>
+        <select name="is_working_day">
+            <option value="true" {'selected' if entry.is_working_day else ''}>Рабочий день</option>
+            <option value="false" {'selected' if not entry.is_working_day else ''}>Выходной/праздник</option>
+        </select>
+        <input type="text" name="description" value="{entry.description or ''}">
+        <button type="submit">Сохранить</button>
+    </form>
+    <a href="/calendar">Отмена</a>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/calendar/edit/{entry_id}", response_model=None)
+async def edit_calendar_entry(
+    entry_id: int,
+    date: date = Form(...),
+    is_working_day: bool = Form(True),
+    description: str = Form(None),
+    db: AsyncSession = Depends(get_db)
+):
+    data = CalendarUpdate(date=date, is_working_day=is_working_day, description=description)
+    await calendar_service.update_calendar_entry(db, entry_id, data)
+    return RedirectResponse(url="/calendar", status_code=303)
+
+@app.get("/calendar/delete/{entry_id}", response_class=HTMLResponse)
+async def confirm_delete_calendar(entry_id: int, db: AsyncSession = Depends(get_db)):
+    entry = await calendar_service.get_calendar_entry(db, entry_id)
+    if not entry:
+        return HTMLResponse("Запись не найдена", status_code=404)
+    html = f"""
+    <h1>Удалить запись за {entry.date}?</h1>
+    <form method="post" action="/calendar/delete/{entry_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/calendar">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/calendar/delete/{entry_id}", response_model=None)
+async def delete_calendar_entry(entry_id: int, db: AsyncSession = Depends(get_db)):
+    await calendar_service.delete_calendar_entry(db, entry_id)
+    return RedirectResponse(url="/calendar", status_code=303)
 
 # ========== Тестовый эндпоинт ==========
 @app.get("/db-check")
@@ -425,10 +521,10 @@ async def db_check(db: AsyncSession = Depends(get_db)):
     version = result.scalar()
     return {"postgres_version": version}
 
+# ---------- Взаимодействие с сервером генерации ----------
 import httpx
 from fastapi import HTTPException, Request
 
-# ---------- Взаимодействие с сервером генерации ----------
 @app.get("/generate-schedule")
 async def generate_schedule():
     async with httpx.AsyncClient() as client:
@@ -437,16 +533,12 @@ async def generate_schedule():
             response.raise_for_status()
             return response.json()
         except httpx.ConnectError as e:
-            print(f"ConnectError: {e}")
-            raise HTTPException(status_code=503, detail=f"Не удалось подключиться к серверу генерации (порт 8001): {e}")
+            raise HTTPException(status_code=503, detail=f"Не удалось подключиться к серверу генерации: {e}")
         except httpx.TimeoutException:
-            print("Timeout")
             raise HTTPException(status_code=504, detail="Сервер генерации не ответил вовремя")
         except httpx.HTTPStatusError as e:
-            print(f"HTTP error: {e.response.status_code} - {e.response.text}")
             raise HTTPException(status_code=500, detail=f"Ошибка генерации: {e.response.text}")
         except Exception as e:
-            print(f"Unexpected error: {e}")
             raise HTTPException(status_code=500, detail=f"Неожиданная ошибка: {e}")
 
 @app.get("/get-schedule")
@@ -475,11 +567,9 @@ async def dispatcher_proxy(request: Request):
 
 @app.get("/my-schedule", response_class=HTMLResponse)
 async def my_schedule(request: Request):
-    # Получаем данные с его сервера
     async with httpx.AsyncClient() as client:
         response = await client.get("http://localhost:8001/api/schedule")
         data = response.json()
-    # Генерируем HTML
     html = "<h1>Расписание</h1>"
     if not data:
         html += "<p>Расписание пусто. Сначала сгенерируйте его.</p>"
@@ -490,117 +580,3 @@ async def my_schedule(request: Request):
         html += "</table>"
     html += "<p><a href='/'>На главную</a></p>"
     return HTMLResponse(content=html)
-
-from app.services import calendar as calendar_service
-from app.schemas.calendar import CalendarCreate, CalendarUpdate
-from app.services import calendar_sync
-# ... другие импорты
-
-def render_calendar_html(entries):
-    html = "<h1>Календарь (учебные дни, праздники)</h1>"
-    # Форма для добавления записи
-    html += "<h2>Добавить запись</h2>"
-    html += "<form method='post' action='/calendar/add'>"
-    html += "<input type='date' name='date' required>"
-    html += "<select name='is_working_day'><option value='true'>Рабочий день</option><option value='false'>Выходной/праздник</option></select>"
-    html += "<input type='text' name='description' placeholder='Описание'>"
-    html += "<button type='submit'>Добавить</button>"
-    html += "</form>"
-
-    # Форма для синхронизации с внешним API
-    html += "<h2>Синхронизация с официальным календарем</h2>"
-    html += "<form method='post' action='/calendar/sync'>"
-    html += "<input type='number' name='year' placeholder='Год (например, 2025)' required>"
-    html += "<button type='submit'>Загрузить данные за год</button>"
-    html += "</form>"
-
-    # Список существующих записей
-    html += "<h2>Список записей</h2>"
-    html += "<ul>"
-    for e in entries:
-        html += f"<li>{e.date} – {'Рабочий' if e.is_working_day else 'Выходной'} "
-        if e.description:
-            html += f"— {e.description} "
-        html += f"<a href='/calendar/edit/{e.id}'>Редактировать</a> "
-        html += f"<a href='/calendar/delete/{e.id}'>Удалить</a></li>"
-    html += "</ul>"
-    html += "<a href='/'>На главную</a>"
-    return html
-
-# --- Маршруты для веб-страниц ---
-@app.get("/calendar", response_class=HTMLResponse)
-async def calendar_page(db: AsyncSession = Depends(get_db)):
-    entries = await calendar_service.get_all_calendar(db)
-    return HTMLResponse(content=render_calendar_html(entries))
-
-@app.post("/calendar/add")
-async def add_calendar_entry(
-    date: date = Form(...),
-    is_working_day: bool = Form(True),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
-    data = CalendarCreate(date=date, is_working_day=is_working_day, description=description)
-    await calendar_service.create_calendar_entry(db, data)
-    return RedirectResponse(url="/calendar", status_code=303)
-
-@app.post("/calendar/sync")
-async def sync_calendar_web(
-    year: int = Form(...),
-    background_tasks: BackgroundTasks = Depends(),
-    db: AsyncSession = Depends(get_db)
-):
-    background_tasks.add_task(calendar_sync.sync_calendar_for_year, db, year)
-    return RedirectResponse(url="/calendar", status_code=303)
-
-# --- Маршруты для редактирования и удаления (аналогично группам) ---
-@app.get("/calendar/edit/{entry_id}", response_class=HTMLResponse)
-async def edit_calendar_form(entry_id: int, db: AsyncSession = Depends(get_db)):
-    entry = await calendar_service.get_calendar_entry(db, entry_id)
-    if not entry:
-        return HTMLResponse("Запись не найдена", status_code=404)
-    html = f"""
-    <h1>Редактировать запись календаря</h1>
-    <form method="post" action="/calendar/edit/{entry_id}">
-        <input type="date" name="date" value="{entry.date}" required>
-        <select name="is_working_day">
-            <option value="true" {'selected' if entry.is_working_day else ''}>Рабочий день</option>
-            <option value="false" {'selected' if not entry.is_working_day else ''}>Выходной/праздник</option>
-        </select>
-        <input type="text" name="description" value="{entry.description or ''}">
-        <button type="submit">Сохранить</button>
-    </form>
-    <a href="/calendar">Отмена</a>
-    """
-    return HTMLResponse(content=html)
-
-@app.post("/calendar/edit/{entry_id}")
-async def edit_calendar_entry(
-    entry_id: int,
-    date: date = Form(...),
-    is_working_day: bool = Form(True),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
-    data = CalendarUpdate(date=date, is_working_day=is_working_day, description=description)
-    await calendar_service.update_calendar_entry(db, entry_id, data)
-    return RedirectResponse(url="/calendar", status_code=303)
-
-@app.get("/calendar/delete/{entry_id}", response_class=HTMLResponse)
-async def confirm_delete_calendar(entry_id: int, db: AsyncSession = Depends(get_db)):
-    entry = await calendar_service.get_calendar_entry(db, entry_id)
-    if not entry:
-        return HTMLResponse("Запись не найдена", status_code=404)
-    html = f"""
-    <h1>Удалить запись за {entry.date}?</h1>
-    <form method="post" action="/calendar/delete/{entry_id}">
-        <button type="submit">Да, удалить</button>
-        <a href="/calendar">Отмена</a>
-    </form>
-    """
-    return HTMLResponse(content=html)
-
-@app.post("/calendar/delete/{entry_id}")
-async def delete_calendar_entry(entry_id: int, db: AsyncSession = Depends(get_db)):
-    await calendar_service.delete_calendar_entry(db, entry_id)
-    return RedirectResponse(url="/calendar", status_code=303)

@@ -1,10 +1,10 @@
 from pydantic import BaseModel
-from datetime import date
+import datetime
 from typing import Optional
 
 class CalendarResponse(BaseModel):
     id: int
-    date: date
+    date: datetime.date
     is_working_day: bool
     week_type: Optional[str] = None
     description: Optional[str] = None
@@ -13,13 +13,13 @@ class CalendarResponse(BaseModel):
         from_attributes = True
 
 class CalendarCreate(BaseModel):
-    date: date
+    date: datetime.date
     is_working_day: bool = True
     week_type: Optional[str] = None
     description: Optional[str] = None
 
 class CalendarUpdate(BaseModel):
-    date: Optional[date] = None # type: ignore
+    date: Optional[datetime.date] = None
     is_working_day: Optional[bool] = None
     week_type: Optional[str] = None
     description: Optional[str] = None
