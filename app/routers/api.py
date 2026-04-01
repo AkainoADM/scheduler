@@ -3,14 +3,16 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..utils import generate_schedule
 from ..models import ScheduleItem
+
 router = APIRouter(prefix="/api", tags=["API"])
 
 @router.post("/generate")
 def generate(db: Session = Depends(get_db)):
     count = generate_schedule(db)
-    if count == 0:
-        return {"status": "error", "message": "Недостаточно данных (проверьте op_lessons, ref_time_slots, ref_audiences)"}
-    return {"status": "success", "count": count}
+    if count.get("count", 0) == 0:
+        return {"status": "error", "message": "Недостаточно данных"}
+    return count
+
 @router.get("/schedule")
 def get_schedule(db: Session = Depends(get_db)):
     items = db.query(ScheduleItem).all()
@@ -18,12 +20,14 @@ def get_schedule(db: Session = Depends(get_db)):
     schedule_data = []
     for item in items:
         lesson = item.lesson
+        subject = lesson.subject if lesson else None
         teacher_name = "Не назначен"
-        if lesson and lesson.teachers:
-            teacher_name = ", ".join([t.name for t in lesson.teachers])
+        
+        if subject and subject.teachers:
+            teacher_name = ", ".join([t.name for t in subject.teachers])
             
         schedule_data.append({
-            "subject": lesson.subject if lesson else "---", 
+            "subject": subject.name if subject else "---", 
             "teacher": teacher_name,
             "audience": item.audience.name if item.audience else "---", 
             "date": str(item.date) if item.date is not None else "---", 

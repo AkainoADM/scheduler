@@ -1,67 +1,74 @@
 import random
-from sqlalchemy.orm import Session, joinedload, selectinload
-from .models import ScheduleItem, Lesson, Audience, TimeSlot
+from collections import defaultdict
+from sqlalchemy.orm import Session, selectinload
+from .models import ScheduleItem, Lesson, Audience, TimeSlot, Subject
 
 def generate_schedule(db: Session):
-    # 1. Очистка старого расписания
+    # Очищаем старое расписание
     db.query(ScheduleItem).delete()
     
-    # 2. Загрузка данных. ОБЯЗАТЕЛЬНО подгружаем группы и учителей
+    # Загружаем все уроки на все даты со связями
     lessons = db.query(Lesson).options(
-        selectinload(Lesson.groups),
-        selectinload(Lesson.teachers)
+        selectinload(Lesson.subject).selectinload(Subject.groups),
+        selectinload(Lesson.subject).selectinload(Subject.teachers)
     ).all()
     
-    # ПЕРЕМЕШИВАЕМ уроки для эффекта рандома
-    random.shuffle(lessons)
-    
     active_audiences = db.query(Audience).filter(Audience.is_active == True).all()
-    time_slots = db.query(TimeSlot).all()
+    # Сортируем слоты по порядку (1 пара, 2 пара и т.д.)
+    time_slots = db.query(TimeSlot).order_by(TimeSlot.slot_number).all()
     
-    timeline = {}
+    # Трекер занятости: timeline[дата][ID слота] = {'rooms': set(), 'teachers': set(), 'groups': set()}
+    timeline = defaultdict(lambda: defaultdict(lambda: {'rooms': set(), 'teachers': set(), 'groups': set()}))
+    
     new_schedule = []
 
+    # Сортируем уроки так, чтобы сначала ставить сложные (потоковые лекции), а потом обычные
+    lessons.sort(key=lambda x: (
+        len(x.subject.groups) if x.subject else 0,
+        len(x.subject.teachers) if x.subject else 0
+    ), reverse=True)
+
     for lesson in lessons:
-        # Проверяем, есть ли вообще у урока группы и учителя
-        # Если их нет в БД, в таблице будут прочерки!
-        teacher_ids = [t.id for t in lesson.teachers]
-        group_ids = [g.id for g in lesson.groups]
+        subject = lesson.subject
+        if not subject: continue
+            
+        group_ids = [g.id for g in subject.groups]
+        teacher_ids = [t.id for t in subject.teachers]
         
-        # Если урок "пустой", пропустим его или выведем в лог
         if not group_ids:
-            print(f"Warning: У урока {lesson.subject} (ID: {lesson.id}) нет групп!")
+            continue # Пропускаем "пустые" предметы без групп
 
         l_date = lesson.date
         target_capacity = int(lesson.student_count or 0)
-        
-        # Перемешиваем слоты, чтобы пары не всегда шли с первой
-        shuffled_slots = list(time_slots)
-        random.shuffle(shuffled_slots)
+        placed = False
 
-        for slot in shuffled_slots:
-            key = (l_date, slot.id)
-            if key not in timeline:
-                timeline[key] = {'rooms': set(), 'groups': set(), 'teachers': set()}
+        # Ищем ПЕРВОЕ СВОБОДНОЕ время (чтобы не было пустых окон с утра)
+        for slot in time_slots:
+            state = timeline[l_date][slot.id]
             
-            # Проверки на занятость (Hard Rules)
-            if any(t_id in timeline[key]['teachers'] for t_id in teacher_ids): continue
-            if any(g_id in timeline[key]['groups'] for g_id in group_ids): continue
+            # ЖЕСТКИЕ ПРАВИЛА (Hard Rules)
+            # 1. Занята ли хоть одна группа из этого предмета в это время?
+            if any(g_id in state['groups'] for g_id in group_ids): continue
+            # 2. Занят ли преподаватель в это время?
+            if any(t_id in state['teachers'] for t_id in teacher_ids): continue
                 
+            # 3. Ищем подходящую свободную аудиторию
             available_rooms = [
                 a for a in active_audiences 
-                if a.id not in timeline[key]['rooms'] and a.capacity >= target_capacity
+                if a.id not in state['rooms'] and a.capacity >= target_capacity
             ]
             
             if not available_rooms: continue
 
-            # Выбираем случайную подходящую комнату
+            # Выбираем случайную подходящую аудиторию
             selected_room = random.choice(available_rooms)
 
-            # Бронируем
-            timeline[key]['rooms'].add(selected_room.id)
-            timeline[key]['teachers'].update(teacher_ids)
-            timeline[key]['groups'].update(group_ids)
+            # БРОНИРУЕМ СЛОТ
+            state['rooms'].add(selected_room.id)
+            state['teachers'].update(teacher_ids)
+            state['groups'].update(group_ids)
 
+            # Создаем запись расписания
             new_item = ScheduleItem(
                 lesson_id=lesson.id,
                 time_slot_id=slot.id,
@@ -70,8 +77,13 @@ def generate_schedule(db: Session):
                 status='scheduled'
             )
             new_schedule.append(new_item)
-            break
+            placed = True
+            break # Урок успешно поставлен, переходим к следующему
             
+        if not placed:
+            print(f"Не удалось найти слот для предмета {subject.name} на {l_date}")
+
+    # Сохраняем в базу за один проход
     db.add_all(new_schedule)
     db.commit()
     return {"status": "success", "count": len(new_schedule)}
