@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..utils import generate_schedule
-from ..models import ScheduleItem
+from ..models import FinalScheduleItem, ScheduleItem
 
 router = APIRouter(prefix="/api", tags=["API"])
 
@@ -36,3 +36,35 @@ def get_schedule(db: Session = Depends(get_db)):
         })
     
     return schedule_data
+# Добавь эти эндпоинты в api.py
+
+@router.post("/schedule/pin/{item_id}")
+def pin_item(item_id: int, db: Session = Depends(get_db)):
+    item = db.query(ScheduleItem).filter(ScheduleItem.id == item_id).first()
+    if not item:
+        return {"status": "error", "message": "Запись не найдена"}
+    
+    # Переключаем статус (был True станет False и наоборот)
+    item.is_pinned = not item.is_pinned
+    db.commit()
+    return {"is_pinned": item.is_pinned}
+
+@router.post("/schedule/approve")
+def approve_schedule(db: Session = Depends(get_db)):
+    from ..models import FinalScheduleItem
+    # 1. Очищаем старый чистовик
+    db.query(FinalScheduleItem).delete()
+    
+    # 2. Копируем всё из черновика
+    drafts = db.query(ScheduleItem).all()
+    for d in drafts:
+        final = FinalScheduleItem(
+            lesson_id=d.lesson_id,
+            time_slot_id=d.time_slot_id,
+            audience_id=d.audience_id,
+            date=d.date
+        )
+        db.add(final)
+    
+    db.commit()
+    return {"status": "success"}

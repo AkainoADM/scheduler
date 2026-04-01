@@ -66,14 +66,33 @@ class Lesson(Base):
     # Отношение к Subject
     subject = relationship("Subject")
 
+# В models.py
+
+# app/models.py
+
 class ScheduleItem(Base):
-    __tablename__ = "op_schedule_items" # Исправлено имя таблицы
+    __tablename__ = "op_schedule_items_1"
     id: Mapped[int] = mapped_column(primary_key=True)
     lesson_id: Mapped[int] = mapped_column(ForeignKey('op_lessons.id'))
     time_slot_id: Mapped[int] = mapped_column(ForeignKey('ref_time_slots.id'))
     audience_id: Mapped[int] = mapped_column(ForeignKey('ref_audiences.id'))
-    date: Mapped[datetime.date] = mapped_column(Date) 
+    date: Mapped[datetime.date] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String, default='scheduled')
+    # ДОБАВЬ ЭТУ СТРОКУ:
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False) 
+
+    lesson = relationship("Lesson")
+    time_slot = relationship("TimeSlot")
+    audience = relationship("Audience")
+
+# ДОБАВЬ ВЕСЬ ЭТОТ КЛАСС В КОНЕЦ ФАЙЛА:
+class FinalScheduleItem(Base):
+    __tablename__ = "op_final_schedule"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lesson_id: Mapped[int] = mapped_column(ForeignKey('op_lessons.id'))
+    time_slot_id: Mapped[int] = mapped_column(ForeignKey('ref_time_slots.id'))
+    audience_id: Mapped[int] = mapped_column(ForeignKey('ref_audiences.id'))
+    date: Mapped[datetime.date] = mapped_column(Date)
 
     lesson = relationship("Lesson")
     time_slot = relationship("TimeSlot")

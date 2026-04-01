@@ -1,10 +1,34 @@
 import random
 from collections import defaultdict
 from sqlalchemy.orm import Session, selectinload
-from .models import ScheduleItem, Lesson, Audience, TimeSlot, Subject
+from .models import ScheduleItem, Lesson, Audience, TimeSlot, Subject, FinalScheduleItem
+
+# app/utils.py
 
 def generate_schedule(db: Session):
-    # Очищаем старое расписание
+    # 1. Удаляем ТОЛЬКО те записи, которые НЕ закреплены
+    db.query(ScheduleItem).filter(ScheduleItem.is_pinned == False).delete()
+    
+    # 2. Загружаем закрепленные, чтобы пометить их время и кабинеты как ЗАНЯТЫЕ
+    pinned_items = db.query(ScheduleItem).filter(ScheduleItem.is_pinned == True).all()
+    
+    timeline = {} # (дата, slot_id): {rooms: set(), teachers: set(), groups: set()}
+    
+    for p in pinned_items:
+        key = (p.date, p.time_slot_id)
+        if key not in timeline:
+            timeline[key] = {'rooms': set(), 'teachers': set(), 'groups': set()}
+        
+        timeline[key]['rooms'].add(p.audience_id)
+        # Добавляем учителей и группы закрепленной пары в "занятые"
+        if p.lesson and p.lesson.teachers:
+            timeline[key]['teachers'].update([t.id for t in p.lesson.teachers])
+        if p.lesson and p.lesson.groups:
+            timeline[key]['groups'].update([g.id for g in p.lesson.groups])
+
+    # 3. Берем только те уроки, которых ЕЩЕ НЕТ в расписании
+    pinned_lesson_ids = [p.lesson_id for p in pinned_items]
+    lessons = db.query(Lesson).filter(~Lesson.id.in_(pinned_lesson_ids)).all()
     db.query(ScheduleItem).delete()
     
     # Загружаем все уроки на все даты со связями

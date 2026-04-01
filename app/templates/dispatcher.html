@@ -39,26 +39,28 @@
                             <th style="width: 20%;">Аудитория</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        {% for item in items %}
-                        <tr>
-                            <td class="text-nowrap">{{ item.date.strftime('%d.%m.%Y') }}</td>
-                            <td><span class="badge bg-secondary">{{ item.time_slot.name }}</span></td>
-                            <td class="fw-bold text-dark">{{ item.lesson.subject.name if item.lesson.subject else '—' }}</td>
-                            <td>
-                                {% if item.lesson.subject and item.lesson.subject.teachers %}
-                                    {{ item.lesson.subject.teachers|map(attribute='name')|join(', ') }}
-                                {% else %}
-                                    <span class="text-muted">—</span>
-                                {% endif %}
-                            </td>
-                            <td><span class="badge border text-dark">{{ item.audience.name if item.audience else '—' }}</span></td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+                      <tbody>
+                    {% for key, items in grouped_schedules.items() %}
+    
+                     {% for item in items %}
+                     <tr>
+                         <td>{{ item.date }}</td>
+                         <td>{{ item.time_slot.slot_number }} пара</td>
+
+                     <td>
+                         <button onclick="togglePin({{item.id}}, this)" 
+                              class="btn btn-sm {{ 'btn-warning' if item.is_pinned else 'btn-outline-secondary' }}">
+                            {{ '📌 Закреплено' if item.is_pinned else '📍 Закрепить' }}
+                           </button>
+                    </td>
+
+                       <td>{{ item.lesson.subject.name if item.lesson.subject else "---" }}</td>
+                     </tr>
+                 {% endfor %} {% endfor %}
+                 </tbody>
+                  </table>
+               </div>
+           </div>
         {% endfor %}
 
     </div>
@@ -67,7 +69,10 @@
         <input type="text" id="groupSearch" class="form-control" placeholder="🔍 Найти группу (например, 130Б)..." onkeyup="filterGroups()">
     </div>
 </div>
+<tr>
+    <td>{{ item.date }}</td>
 
+</tr>
 <script>
 function filterGroups() {
     let input = document.getElementById('groupSearch').value.toUpperCase();
@@ -109,5 +114,33 @@ function filterGroups() {
             }
         }
     </script>
+    <script>
+    async function generateNew() {
+    }
+
+    
+    async function togglePin(id, btn) {
+        try {
+            const res = await fetch(`/api/schedule/pin/${id}`, { method: 'POST' });
+            if (!res.ok) throw new Error('Ошибка сервера');
+            
+            const data = await res.json();
+            
+            if (data.is_pinned) {
+                // Если закрепили — меняем стиль на желтый (предупреждающий)
+                btn.classList.remove('btn-outline-secondary');
+                btn.classList.add('btn-warning');
+                btn.innerText = '📌 Закреплено';
+            } else {
+                // Если сняли закреп — возвращаем серый контур
+                btn.classList.remove('btn-warning');
+                btn.classList.add('btn-outline-secondary');
+                btn.innerText = '📍 Закрепить';
+            }
+        } catch (e) {
+            alert('Не удалось закрепить пару: ' + e.message);
+        }
+    }
+</script>
 </body>
 </html>

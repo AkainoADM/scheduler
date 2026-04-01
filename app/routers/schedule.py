@@ -32,9 +32,9 @@ def view_dispatcher_schedule(request: Request, db: Session = Depends(get_db)):
         grouped_by_group[group_name].sort(key=lambda x: (x.date, x.time_slot.slot_number))
 
     # Сортируем сами группы по алфавиту/номеру (чтобы 130Б шла перед 136Б)
-    sorted_groups = dict(sorted(grouped_by_group.items()))
+    grouped_data = dict(sorted(grouped_by_group.items()))
 
     return templates.TemplateResponse("dispatcher.html", {
         "request": request, 
-        "grouped_schedules": sorted_groups
+        "grouped_schedules": grouped_data
     })
