@@ -1,18 +1,39 @@
-from fastapi import APIRouter, Depends
+import datetime
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..utils import generate_schedule
 from ..models import FinalScheduleItem, ScheduleItem
+from datetime import date, timedelta
+from datetime import datetime
 
 router = APIRouter(prefix="/api", tags=["API"])
 
 @router.post("/generate")
-def generate(db: Session = Depends(get_db)):
-    count = generate_schedule(db)
-    if count.get("count", 0) == 0:
-        return {"status": "error", "message": "Недостаточно данных"}
-    return count
-
+@router.post("/generate")
+def run_generation(
+    start_date: str, 
+    end_date: str, 
+    db: Session = Depends(get_db)
+):
+    try:
+        # Теперь datetime.strptime сработает корректно
+        date_start = datetime.strptime(start_date, "%d.%m.%Y").date()
+        date_end = datetime.strptime(end_date, "%d.%m.%Y").date()
+        
+        # Проверка: дата начала не может быть позже даты конца
+        if date_start > date_end:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+            
+    except ValueError:
+        raise HTTPException(
+            status_code=400, 
+            detail="Неверный формат даты. Используйте ДД.ММ.ГГГГ (например, 12.03.2026)"
+        )
+    
+    # Вызываем генерацию с объектами date
+    result = generate_schedule(db, date_start, date_end)
+    return result
 @router.get("/schedule")
 def get_schedule(db: Session = Depends(get_db)):
     items = db.query(ScheduleItem).all()
@@ -68,3 +89,4 @@ def approve_schedule(db: Session = Depends(get_db)):
     
     db.commit()
     return {"status": "success"}
+

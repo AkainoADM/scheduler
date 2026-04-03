@@ -1,40 +1,40 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
 from ..database import get_db
 from ..models import Lesson, ScheduleItem, Subject
 from collections import defaultdict
+from datetime import date
+from ..utils import apply_template_to_period
 
 router = APIRouter(prefix="/schedule", tags=["Schedule"])
 templates = Jinja2Templates(directory="app/templates")
 
 @router.get("/dispatcher")
 def view_dispatcher_schedule(request: Request, db: Session = Depends(get_db)):
-    # Подгружаем все данные
-    schedules = db.query(ScheduleItem).options(
-        joinedload(ScheduleItem.lesson).joinedload(Lesson.subject).joinedload(Subject.groups),
-        joinedload(ScheduleItem.lesson).joinedload(Lesson.subject).joinedload(Subject.teachers),
-        joinedload(ScheduleItem.time_slot),
-        joinedload(ScheduleItem.audience)
-    ).all()
-
-    # Группируем расписание ПО ГРУППАМ
-    grouped_by_group = defaultdict(list)
-    
-    for item in schedules:
-        if item.lesson and item.lesson.subject and item.lesson.subject.groups:
-            # Если у пары несколько групп, она добавится в расписание каждой!
-            for group in item.lesson.subject.groups:
-                grouped_by_group[group.name].append(item)
-
-    # Сортируем пары внутри каждой группы по Дате и Времени (номеру пары)
-    for group_name in grouped_by_group:
-        grouped_by_group[group_name].sort(key=lambda x: (x.date, x.time_slot.slot_number))
-
-    # Сортируем сами группы по алфавиту/номеру (чтобы 130Б шла перед 136Б)
-    grouped_data = dict(sorted(grouped_by_group.items()))
+    schedules = db.query(ScheduleItem).all()
+    # Группировка (пример)
+    grouped_data = {}
+    for s in schedules:
+        key = s.lesson.groups[0].name if s.lesson and s.lesson.groups else "Без группы"
+        if key not in grouped_data:
+            grouped_data[key] = []
+        grouped_data[key].append(s)
 
     return templates.TemplateResponse("dispatcher.html", {
-        "request": request, 
-        "grouped_schedules": grouped_data
+        "request": request,
+        "grouped_schedules": grouped_data  # Проверьте, что имя совпадает с тем, что в HTML
     })
+@router.post("/apply-template")
+def run_template_application(
+    sample_id: int, 
+    start_date: date, 
+    end_date: date, 
+    db: Session = Depends(get_db)
+):
+    try:
+        count = apply_template_to_period(db, sample_id, start_date, end_date)
+        return {"status": "success", "created_items": count}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

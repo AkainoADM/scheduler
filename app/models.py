@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Date, Time, Table
-from sqlalchemy.orm import relationship, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 import datetime
+
 
 # --- ТАБЛИЦЫ СВЯЗЕЙ (Связь теперь через subject_id) ---
 op_groups_of_pairs = Table(
@@ -94,6 +95,28 @@ class FinalScheduleItem(Base):
     audience_id: Mapped[int] = mapped_column(ForeignKey('ref_audiences.id'))
     date: Mapped[datetime.date] = mapped_column(Date)
 
+    lesson = relationship("Lesson")
+    time_slot = relationship("TimeSlot")
+    audience = relationship("Audience")
+
+    
+class TemplateName(Base):
+    __tablename__ = "op_name_of_sample"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    
+    items = relationship("TemplateItem", back_populates="sample")
+
+class TemplateItem(Base):
+    __tablename__ = "op_templates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name_of_sample_id: Mapped[int] = mapped_column(ForeignKey('op_name_of_sample.id'))
+    day_of_week_id: Mapped[int] = mapped_column(ForeignKey('ref_days_of_the_week.id'))
+    time_slot_id: Mapped[int] = mapped_column(ForeignKey('ref_time_slots.id'))
+    lesson_id: Mapped[int] = mapped_column(ForeignKey('op_lessons.id'))
+    audience_id: Mapped[int] = mapped_column(ForeignKey('ref_audiences.id'))
+
+    sample = relationship("TemplateName", back_populates="items")
     lesson = relationship("Lesson")
     time_slot = relationship("TimeSlot")
     audience = relationship("Audience")

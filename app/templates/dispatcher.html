@@ -40,24 +40,14 @@
                         </tr>
                     </thead>
                       <tbody>
-                    {% for key, items in grouped_schedules.items() %}
-    
-                     {% for item in items %}
-                     <tr>
-                         <td>{{ item.date }}</td>
-                         <td>{{ item.time_slot.slot_number }} пара</td>
-
-                     <td>
-                         <button onclick="togglePin({{item.id}}, this)" 
-                              class="btn btn-sm {{ 'btn-warning' if item.is_pinned else 'btn-outline-secondary' }}">
-                            {{ '📌 Закреплено' if item.is_pinned else '📍 Закрепить' }}
-                           </button>
-                    </td>
-
-                       <td>{{ item.lesson.subject.name if item.lesson.subject else "---" }}</td>
-                     </tr>
-                 {% endfor %} {% endfor %}
-                 </tbody>
+    {% for group_name, items in grouped_schedules.items() %}
+        {% for item in items %}
+            <tr>
+                <td>{{ item.date }}</td> <td>{{ item.time_slot.slot_number }}</td>
+                <td>{{ item.lesson.subject.name if item.lesson and item.lesson.subject else "---" }}</td>
+                </tr>
+        {% endfor %} {% endfor %}
+</tbody>
                   </table>
                </div>
            </div>
