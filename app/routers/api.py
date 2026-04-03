@@ -17,11 +17,9 @@ def run_generation(
     db: Session = Depends(get_db)
 ):
     try:
-        # Теперь datetime.strptime сработает корректно
         date_start = datetime.strptime(start_date, "%d.%m.%Y").date()
         date_end = datetime.strptime(end_date, "%d.%m.%Y").date()
-        
-        # Проверка: дата начала не может быть позже даты конца
+
         if date_start > date_end:
             raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
             
@@ -30,8 +28,6 @@ def run_generation(
             status_code=400, 
             detail="Неверный формат даты. Используйте ДД.ММ.ГГГГ (например, 12.03.2026)"
         )
-    
-    # Вызываем генерацию с объектами date
     result = generate_schedule(db, date_start, date_end)
     return result
 @router.get("/schedule")
@@ -57,15 +53,12 @@ def get_schedule(db: Session = Depends(get_db)):
         })
     
     return schedule_data
-# Добавь эти эндпоинты в api.py
 
 @router.post("/schedule/pin/{item_id}")
 def pin_item(item_id: int, db: Session = Depends(get_db)):
     item = db.query(ScheduleItem).filter(ScheduleItem.id == item_id).first()
     if not item:
         return {"status": "error", "message": "Запись не найдена"}
-    
-    # Переключаем статус (был True станет False и наоборот)
     item.is_pinned = not item.is_pinned
     db.commit()
     return {"is_pinned": item.is_pinned}
@@ -73,10 +66,8 @@ def pin_item(item_id: int, db: Session = Depends(get_db)):
 @router.post("/schedule/approve")
 def approve_schedule(db: Session = Depends(get_db)):
     from ..models import FinalScheduleItem
-    # 1. Очищаем старый чистовик
     db.query(FinalScheduleItem).delete()
     
-    # 2. Копируем всё из черновика
     drafts = db.query(ScheduleItem).all()
     for d in drafts:
         final = FinalScheduleItem(
