@@ -1,0 +1,2661 @@
+--
+-- PostgreSQL database dump
+--
+
+\restrict yMcWysojdSVHr3T5GbYpMwzQla6FbSjWWZ9U3UebCKxSgzja0febzTRIOy9OKxK
+
+-- Dumped from database version 18.3
+-- Dumped by pg_dump version 18.3
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: schedule; Type: DATABASE; Schema: -; Owner: postgres
+--
+
+CREATE DATABASE schedule WITH TEMPLATE = template0 ENCODING = 'UTF8' LOCALE_PROVIDER = libc LOCALE = 'en_US.UTF-8';
+
+
+ALTER DATABASE schedule OWNER TO postgres;
+
+\unrestrict yMcWysojdSVHr3T5GbYpMwzQla6FbSjWWZ9U3UebCKxSgzja0febzTRIOy9OKxK
+\connect schedule
+\restrict yMcWysojdSVHr3T5GbYpMwzQla6FbSjWWZ9U3UebCKxSgzja0febzTRIOy9OKxK
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: op_audiences_of_pairs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_audiences_of_pairs (
+    audience_id integer,
+    subject_id integer
+);
+
+
+ALTER TABLE public.op_audiences_of_pairs OWNER TO postgres;
+
+--
+-- Name: op_audiences_of_subdivisions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_audiences_of_subdivisions (
+    audience_id integer,
+    subdivision_id integer
+);
+
+
+ALTER TABLE public.op_audiences_of_subdivisions OWNER TO postgres;
+
+--
+-- Name: op_final_schedule; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_final_schedule (
+    id integer NOT NULL,
+    lesson_id integer NOT NULL,
+    time_slot_id integer NOT NULL,
+    audience_id integer NOT NULL,
+    date date NOT NULL
+);
+
+
+ALTER TABLE public.op_final_schedule OWNER TO postgres;
+
+--
+-- Name: op_final_schedule_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.op_final_schedule_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.op_final_schedule_id_seq OWNER TO postgres;
+
+--
+-- Name: op_final_schedule_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.op_final_schedule_id_seq OWNED BY public.op_final_schedule.id;
+
+
+--
+-- Name: op_groups_of_pairs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_groups_of_pairs (
+    group_id integer,
+    subject_id integer
+);
+
+
+ALTER TABLE public.op_groups_of_pairs OWNER TO postgres;
+
+--
+-- Name: op_insertions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_insertions (
+    id integer NOT NULL,
+    date timestamp without time zone,
+    faculty_id integer,
+    hash character varying,
+    status character varying
+);
+
+
+ALTER TABLE public.op_insertions OWNER TO postgres;
+
+--
+-- Name: op_insertions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.op_insertions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.op_insertions_id_seq OWNER TO postgres;
+
+--
+-- Name: op_insertions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.op_insertions_id_seq OWNED BY public.op_insertions.id;
+
+
+--
+-- Name: op_lessons; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_lessons (
+    id integer NOT NULL,
+    text character varying,
+    date date,
+    subject_id integer,
+    insertion_id integer,
+    time_slot_id integer,
+    week_day integer,
+    type character varying,
+    student_count integer
+);
+
+
+ALTER TABLE public.op_lessons OWNER TO postgres;
+
+--
+-- Name: op_lessons_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.op_lessons_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.op_lessons_id_seq OWNER TO postgres;
+
+--
+-- Name: op_lessons_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.op_lessons_id_seq OWNED BY public.op_lessons.id;
+
+
+--
+-- Name: op_name_of_sample; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_name_of_sample (
+    id integer NOT NULL,
+    name character varying
+);
+
+
+ALTER TABLE public.op_name_of_sample OWNER TO postgres;
+
+--
+-- Name: op_name_of_sample_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.op_name_of_sample_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.op_name_of_sample_id_seq OWNER TO postgres;
+
+--
+-- Name: op_name_of_sample_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.op_name_of_sample_id_seq OWNED BY public.op_name_of_sample.id;
+
+
+--
+-- Name: op_role_permissions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_role_permissions (
+    role_id integer,
+    permission_id integer,
+    granted_by integer,
+    granted_at timestamp without time zone
+);
+
+
+ALTER TABLE public.op_role_permissions OWNER TO postgres;
+
+--
+-- Name: op_schedule_items; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_schedule_items (
+    id integer NOT NULL,
+    lesson_id integer,
+    time_slot_id integer,
+    audience_id integer,
+    date date,
+    status character varying,
+    is_pinned boolean DEFAULT false
+);
+
+
+ALTER TABLE public.op_schedule_items OWNER TO postgres;
+
+--
+-- Name: op_schedule_items_1; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_schedule_items_1 (
+    id integer NOT NULL,
+    lesson_id integer NOT NULL,
+    time_slot_id integer NOT NULL,
+    audience_id integer NOT NULL,
+    date date NOT NULL,
+    status character varying NOT NULL,
+    is_pinned boolean NOT NULL
+);
+
+
+ALTER TABLE public.op_schedule_items_1 OWNER TO postgres;
+
+--
+-- Name: op_schedule_items_1_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.op_schedule_items_1_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.op_schedule_items_1_id_seq OWNER TO postgres;
+
+--
+-- Name: op_schedule_items_1_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.op_schedule_items_1_id_seq OWNED BY public.op_schedule_items_1.id;
+
+
+--
+-- Name: op_schedule_items_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.op_schedule_items_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.op_schedule_items_id_seq OWNER TO postgres;
+
+--
+-- Name: op_schedule_items_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.op_schedule_items_id_seq OWNED BY public.op_schedule_items.id;
+
+
+--
+-- Name: op_teacher_users; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_teacher_users (
+    teacher_id integer,
+    user_id integer,
+    is_primary boolean
+);
+
+
+ALTER TABLE public.op_teacher_users OWNER TO postgres;
+
+--
+-- Name: op_teacher_work_windows; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_teacher_work_windows (
+    id integer NOT NULL,
+    teacher_id integer,
+    day_of_week integer,
+    start_time time without time zone,
+    end_time time without time zone,
+    is_available boolean
+);
+
+
+ALTER TABLE public.op_teacher_work_windows OWNER TO postgres;
+
+--
+-- Name: op_teacher_work_windows_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.op_teacher_work_windows_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.op_teacher_work_windows_id_seq OWNER TO postgres;
+
+--
+-- Name: op_teacher_work_windows_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.op_teacher_work_windows_id_seq OWNED BY public.op_teacher_work_windows.id;
+
+
+--
+-- Name: op_teachers_groups; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_teachers_groups (
+    teachers_id integer,
+    groups_id integer
+);
+
+
+ALTER TABLE public.op_teachers_groups OWNER TO postgres;
+
+--
+-- Name: op_teachers_of_pairs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_teachers_of_pairs (
+    teacher_id integer,
+    subject_id integer,
+    is_main boolean
+);
+
+
+ALTER TABLE public.op_teachers_of_pairs OWNER TO postgres;
+
+--
+-- Name: op_templates; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_templates (
+    name_of_sample_id integer,
+    day_of_week_id integer,
+    time_slot_id integer,
+    lesson_id integer,
+    audience_id integer
+);
+
+
+ALTER TABLE public.op_templates OWNER TO postgres;
+
+--
+-- Name: op_user_activity_logs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_user_activity_logs (
+    id integer NOT NULL,
+    user_id integer,
+    action_type character varying,
+    action_details json,
+    ip_address character varying,
+    user_agent character varying,
+    created_at timestamp without time zone
+);
+
+
+ALTER TABLE public.op_user_activity_logs OWNER TO postgres;
+
+--
+-- Name: op_user_activity_logs_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.op_user_activity_logs_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.op_user_activity_logs_id_seq OWNER TO postgres;
+
+--
+-- Name: op_user_activity_logs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.op_user_activity_logs_id_seq OWNED BY public.op_user_activity_logs.id;
+
+
+--
+-- Name: op_user_faculties; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_user_faculties (
+    user_id integer,
+    faculty_id integer,
+    access_level character varying
+);
+
+
+ALTER TABLE public.op_user_faculties OWNER TO postgres;
+
+--
+-- Name: op_user_roles; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.op_user_roles (
+    user_id integer,
+    role_id integer,
+    assigned_by integer,
+    assigned_at timestamp without time zone,
+    expires_at timestamp without time zone
+);
+
+
+ALTER TABLE public.op_user_roles OWNER TO postgres;
+
+--
+-- Name: ref_audiences; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_audiences (
+    id integer NOT NULL,
+    name character varying,
+    autocreated boolean,
+    building_id integer,
+    capacity integer,
+    type character varying,
+    is_active boolean
+);
+
+
+ALTER TABLE public.ref_audiences OWNER TO postgres;
+
+--
+-- Name: ref_audiences_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_audiences_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_audiences_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_audiences_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_audiences_id_seq OWNED BY public.ref_audiences.id;
+
+
+--
+-- Name: ref_buildings; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_buildings (
+    id integer NOT NULL,
+    name character varying,
+    address character varying
+);
+
+
+ALTER TABLE public.ref_buildings OWNER TO postgres;
+
+--
+-- Name: ref_buildings_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_buildings_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_buildings_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_buildings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_buildings_id_seq OWNED BY public.ref_buildings.id;
+
+
+--
+-- Name: ref_calendar; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_calendar (
+    id integer NOT NULL,
+    date date NOT NULL,
+    is_working_day boolean,
+    week_type character varying,
+    description character varying
+);
+
+
+ALTER TABLE public.ref_calendar OWNER TO postgres;
+
+--
+-- Name: ref_calendar_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_calendar_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_calendar_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_calendar_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_calendar_id_seq OWNED BY public.ref_calendar.id;
+
+
+--
+-- Name: ref_days_of_the_week; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_days_of_the_week (
+    id integer NOT NULL,
+    name character varying
+);
+
+
+ALTER TABLE public.ref_days_of_the_week OWNER TO postgres;
+
+--
+-- Name: ref_days_of_the_week_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_days_of_the_week_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_days_of_the_week_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_days_of_the_week_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_days_of_the_week_id_seq OWNED BY public.ref_days_of_the_week.id;
+
+
+--
+-- Name: ref_faculties; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_faculties (
+    id integer NOT NULL,
+    name character varying,
+    display_name character varying,
+    short_display_name character varying
+);
+
+
+ALTER TABLE public.ref_faculties OWNER TO postgres;
+
+--
+-- Name: ref_faculties_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_faculties_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_faculties_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_faculties_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_faculties_id_seq OWNED BY public.ref_faculties.id;
+
+
+--
+-- Name: ref_groups; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_groups (
+    id integer NOT NULL,
+    name character varying,
+    faculty_id integer,
+    student_count integer
+);
+
+
+ALTER TABLE public.ref_groups OWNER TO postgres;
+
+--
+-- Name: ref_groups_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_groups_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_groups_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_groups_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_groups_id_seq OWNED BY public.ref_groups.id;
+
+
+--
+-- Name: ref_permissions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_permissions (
+    id integer NOT NULL,
+    permission_code character varying,
+    permission_name character varying,
+    description character varying
+);
+
+
+ALTER TABLE public.ref_permissions OWNER TO postgres;
+
+--
+-- Name: ref_permissions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_permissions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_permissions_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_permissions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_permissions_id_seq OWNED BY public.ref_permissions.id;
+
+
+--
+-- Name: ref_roles; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_roles (
+    id integer NOT NULL,
+    role_name character varying,
+    description character varying
+);
+
+
+ALTER TABLE public.ref_roles OWNER TO postgres;
+
+--
+-- Name: ref_roles_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_roles_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_roles_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_roles_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_roles_id_seq OWNED BY public.ref_roles.id;
+
+
+--
+-- Name: ref_subdivisions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_subdivisions (
+    id integer NOT NULL,
+    name character varying
+);
+
+
+ALTER TABLE public.ref_subdivisions OWNER TO postgres;
+
+--
+-- Name: ref_subdivisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_subdivisions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_subdivisions_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_subdivisions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_subdivisions_id_seq OWNED BY public.ref_subdivisions.id;
+
+
+--
+-- Name: ref_subject; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_subject (
+    id integer NOT NULL,
+    name character varying
+);
+
+
+ALTER TABLE public.ref_subject OWNER TO postgres;
+
+--
+-- Name: ref_subject_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_subject_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_subject_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_subject_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_subject_id_seq OWNED BY public.ref_subject.id;
+
+
+--
+-- Name: ref_teachers; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_teachers (
+    id integer NOT NULL,
+    login character varying,
+    name character varying,
+    url character varying,
+    max_hours_per_day integer,
+    max_hours_per_week integer
+);
+
+
+ALTER TABLE public.ref_teachers OWNER TO postgres;
+
+--
+-- Name: ref_teachers_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_teachers_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_teachers_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_teachers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_teachers_id_seq OWNED BY public.ref_teachers.id;
+
+
+--
+-- Name: ref_time_slots; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_time_slots (
+    id integer NOT NULL,
+    slot_number integer,
+    name character varying,
+    start_time time without time zone,
+    end_time time without time zone,
+    duration_minutes integer,
+    break_after_minutes integer,
+    is_active boolean
+);
+
+
+ALTER TABLE public.ref_time_slots OWNER TO postgres;
+
+--
+-- Name: ref_time_slots_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_time_slots_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_time_slots_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_time_slots_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_time_slots_id_seq OWNED BY public.ref_time_slots.id;
+
+
+--
+-- Name: ref_user_types; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_user_types (
+    id integer NOT NULL,
+    code character varying,
+    name character varying,
+    description character varying
+);
+
+
+ALTER TABLE public.ref_user_types OWNER TO postgres;
+
+--
+-- Name: ref_user_types_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_user_types_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_user_types_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_user_types_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_user_types_id_seq OWNED BY public.ref_user_types.id;
+
+
+--
+-- Name: ref_users; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ref_users (
+    id integer NOT NULL,
+    username character varying,
+    email character varying,
+    password_hash character varying,
+    full_name character varying,
+    user_type_id integer,
+    is_active boolean,
+    created_at timestamp without time zone,
+    last_login timestamp without time zone
+);
+
+
+ALTER TABLE public.ref_users OWNER TO postgres;
+
+--
+-- Name: ref_users_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ref_users_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.ref_users_id_seq OWNER TO postgres;
+
+--
+-- Name: ref_users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ref_users_id_seq OWNED BY public.ref_users.id;
+
+
+--
+-- Name: op_final_schedule id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_final_schedule ALTER COLUMN id SET DEFAULT nextval('public.op_final_schedule_id_seq'::regclass);
+
+
+--
+-- Name: op_insertions id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_insertions ALTER COLUMN id SET DEFAULT nextval('public.op_insertions_id_seq'::regclass);
+
+
+--
+-- Name: op_lessons id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_lessons ALTER COLUMN id SET DEFAULT nextval('public.op_lessons_id_seq'::regclass);
+
+
+--
+-- Name: op_name_of_sample id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_name_of_sample ALTER COLUMN id SET DEFAULT nextval('public.op_name_of_sample_id_seq'::regclass);
+
+
+--
+-- Name: op_schedule_items id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items ALTER COLUMN id SET DEFAULT nextval('public.op_schedule_items_id_seq'::regclass);
+
+
+--
+-- Name: op_schedule_items_1 id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items_1 ALTER COLUMN id SET DEFAULT nextval('public.op_schedule_items_1_id_seq'::regclass);
+
+
+--
+-- Name: op_teacher_work_windows id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_work_windows ALTER COLUMN id SET DEFAULT nextval('public.op_teacher_work_windows_id_seq'::regclass);
+
+
+--
+-- Name: op_user_activity_logs id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_activity_logs ALTER COLUMN id SET DEFAULT nextval('public.op_user_activity_logs_id_seq'::regclass);
+
+
+--
+-- Name: ref_audiences id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_audiences ALTER COLUMN id SET DEFAULT nextval('public.ref_audiences_id_seq'::regclass);
+
+
+--
+-- Name: ref_buildings id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_buildings ALTER COLUMN id SET DEFAULT nextval('public.ref_buildings_id_seq'::regclass);
+
+
+--
+-- Name: ref_calendar id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_calendar ALTER COLUMN id SET DEFAULT nextval('public.ref_calendar_id_seq'::regclass);
+
+
+--
+-- Name: ref_days_of_the_week id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_days_of_the_week ALTER COLUMN id SET DEFAULT nextval('public.ref_days_of_the_week_id_seq'::regclass);
+
+
+--
+-- Name: ref_faculties id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_faculties ALTER COLUMN id SET DEFAULT nextval('public.ref_faculties_id_seq'::regclass);
+
+
+--
+-- Name: ref_groups id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_groups ALTER COLUMN id SET DEFAULT nextval('public.ref_groups_id_seq'::regclass);
+
+
+--
+-- Name: ref_permissions id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_permissions ALTER COLUMN id SET DEFAULT nextval('public.ref_permissions_id_seq'::regclass);
+
+
+--
+-- Name: ref_roles id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_roles ALTER COLUMN id SET DEFAULT nextval('public.ref_roles_id_seq'::regclass);
+
+
+--
+-- Name: ref_subdivisions id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_subdivisions ALTER COLUMN id SET DEFAULT nextval('public.ref_subdivisions_id_seq'::regclass);
+
+
+--
+-- Name: ref_subject id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_subject ALTER COLUMN id SET DEFAULT nextval('public.ref_subject_id_seq'::regclass);
+
+
+--
+-- Name: ref_teachers id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_teachers ALTER COLUMN id SET DEFAULT nextval('public.ref_teachers_id_seq'::regclass);
+
+
+--
+-- Name: ref_time_slots id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_time_slots ALTER COLUMN id SET DEFAULT nextval('public.ref_time_slots_id_seq'::regclass);
+
+
+--
+-- Name: ref_user_types id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_user_types ALTER COLUMN id SET DEFAULT nextval('public.ref_user_types_id_seq'::regclass);
+
+
+--
+-- Name: ref_users id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_users ALTER COLUMN id SET DEFAULT nextval('public.ref_users_id_seq'::regclass);
+
+
+--
+-- Data for Name: op_audiences_of_pairs; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_audiences_of_pairs (audience_id, subject_id) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_audiences_of_subdivisions; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_audiences_of_subdivisions (audience_id, subdivision_id) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_final_schedule; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_final_schedule (id, lesson_id, time_slot_id, audience_id, date) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_groups_of_pairs; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_groups_of_pairs (group_id, subject_id) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_insertions; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_insertions (id, date, faculty_id, hash, status) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_lessons; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_lessons (id, text, date, subject_id, insertion_id, time_slot_id, week_day, type, student_count) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_name_of_sample; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_name_of_sample (id, name) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_role_permissions; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_role_permissions (role_id, permission_id, granted_by, granted_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_schedule_items; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_schedule_items (id, lesson_id, time_slot_id, audience_id, date, status, is_pinned) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_schedule_items_1; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_schedule_items_1 (id, lesson_id, time_slot_id, audience_id, date, status, is_pinned) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_teacher_users; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_teacher_users (teacher_id, user_id, is_primary) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_teacher_work_windows; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_teacher_work_windows (id, teacher_id, day_of_week, start_time, end_time, is_available) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_teachers_groups; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_teachers_groups (teachers_id, groups_id) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_teachers_of_pairs; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_teachers_of_pairs (teacher_id, subject_id, is_main) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_templates; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_templates (name_of_sample_id, day_of_week_id, time_slot_id, lesson_id, audience_id) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_user_activity_logs; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_user_activity_logs (id, user_id, action_type, action_details, ip_address, user_agent, created_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_user_faculties; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_user_faculties (user_id, faculty_id, access_level) FROM stdin;
+\.
+
+
+--
+-- Data for Name: op_user_roles; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.op_user_roles (user_id, role_id, assigned_by, assigned_at, expires_at) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_audiences; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_audiences (id, name, autocreated, building_id, capacity, type, is_active) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_buildings; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_buildings (id, name, address) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_calendar; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_calendar (id, date, is_working_day, week_type, description) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_days_of_the_week; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_days_of_the_week (id, name) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_faculties; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_faculties (id, name, display_name, short_display_name) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_groups; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_groups (id, name, faculty_id, student_count) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_permissions; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_permissions (id, permission_code, permission_name, description) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_roles; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_roles (id, role_name, description) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_subdivisions; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_subdivisions (id, name) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_subject; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_subject (id, name) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_teachers; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_teachers (id, login, name, url, max_hours_per_day, max_hours_per_week) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_time_slots; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_time_slots (id, slot_number, name, start_time, end_time, duration_minutes, break_after_minutes, is_active) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_user_types; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_user_types (id, code, name, description) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ref_users; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ref_users (id, username, email, password_hash, full_name, user_type_id, is_active, created_at, last_login) FROM stdin;
+\.
+
+
+--
+-- Name: op_final_schedule_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.op_final_schedule_id_seq', 1, false);
+
+
+--
+-- Name: op_insertions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.op_insertions_id_seq', 1, false);
+
+
+--
+-- Name: op_lessons_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.op_lessons_id_seq', 1, false);
+
+
+--
+-- Name: op_name_of_sample_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.op_name_of_sample_id_seq', 1, false);
+
+
+--
+-- Name: op_schedule_items_1_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.op_schedule_items_1_id_seq', 1, false);
+
+
+--
+-- Name: op_schedule_items_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.op_schedule_items_id_seq', 1, false);
+
+
+--
+-- Name: op_teacher_work_windows_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.op_teacher_work_windows_id_seq', 1, false);
+
+
+--
+-- Name: op_user_activity_logs_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.op_user_activity_logs_id_seq', 1, false);
+
+
+--
+-- Name: ref_audiences_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_audiences_id_seq', 1, false);
+
+
+--
+-- Name: ref_buildings_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_buildings_id_seq', 1, false);
+
+
+--
+-- Name: ref_calendar_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_calendar_id_seq', 1, false);
+
+
+--
+-- Name: ref_days_of_the_week_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_days_of_the_week_id_seq', 1, false);
+
+
+--
+-- Name: ref_faculties_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_faculties_id_seq', 1, false);
+
+
+--
+-- Name: ref_groups_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_groups_id_seq', 1, false);
+
+
+--
+-- Name: ref_permissions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_permissions_id_seq', 1, false);
+
+
+--
+-- Name: ref_roles_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_roles_id_seq', 1, false);
+
+
+--
+-- Name: ref_subdivisions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_subdivisions_id_seq', 1, false);
+
+
+--
+-- Name: ref_subject_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_subject_id_seq', 1, false);
+
+
+--
+-- Name: ref_teachers_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_teachers_id_seq', 1, false);
+
+
+--
+-- Name: ref_time_slots_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_time_slots_id_seq', 1, false);
+
+
+--
+-- Name: ref_user_types_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_user_types_id_seq', 1, false);
+
+
+--
+-- Name: ref_users_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.ref_users_id_seq', 1, false);
+
+
+--
+-- Name: op_final_schedule op_final_schedule_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_final_schedule
+    ADD CONSTRAINT op_final_schedule_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: op_insertions op_insertions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_insertions
+    ADD CONSTRAINT op_insertions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: op_lessons op_lessons_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_lessons
+    ADD CONSTRAINT op_lessons_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: op_name_of_sample op_name_of_sample_pk; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_name_of_sample
+    ADD CONSTRAINT op_name_of_sample_pk PRIMARY KEY (id);
+
+
+--
+-- Name: op_schedule_items_1 op_schedule_items_1_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items_1
+    ADD CONSTRAINT op_schedule_items_1_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: op_schedule_items op_schedule_items_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: op_teacher_users op_teacher_users_teacher_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_teacher_id_key UNIQUE (teacher_id);
+
+
+--
+-- Name: op_teacher_users op_teacher_users_user_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_user_id_key UNIQUE (user_id);
+
+
+--
+-- Name: op_teacher_work_windows op_teacher_work_windows_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_work_windows
+    ADD CONSTRAINT op_teacher_work_windows_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: op_user_activity_logs op_user_activity_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_activity_logs
+    ADD CONSTRAINT op_user_activity_logs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_audiences ref_audiences_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_audiences
+    ADD CONSTRAINT ref_audiences_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_buildings ref_buildings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_buildings
+    ADD CONSTRAINT ref_buildings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_calendar ref_calendar_pk; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_calendar
+    ADD CONSTRAINT ref_calendar_pk PRIMARY KEY (id);
+
+
+--
+-- Name: ref_days_of_the_week ref_days_of_the_week_pk; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_days_of_the_week
+    ADD CONSTRAINT ref_days_of_the_week_pk PRIMARY KEY (id);
+
+
+--
+-- Name: ref_faculties ref_faculties_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_faculties
+    ADD CONSTRAINT ref_faculties_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_groups ref_groups_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_groups
+    ADD CONSTRAINT ref_groups_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_permissions ref_permissions_permission_code_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_permissions
+    ADD CONSTRAINT ref_permissions_permission_code_key UNIQUE (permission_code);
+
+
+--
+-- Name: ref_permissions ref_permissions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_permissions
+    ADD CONSTRAINT ref_permissions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_roles ref_roles_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_roles
+    ADD CONSTRAINT ref_roles_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_roles ref_roles_role_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_roles
+    ADD CONSTRAINT ref_roles_role_name_key UNIQUE (role_name);
+
+
+--
+-- Name: ref_subdivisions ref_subdivisions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_subdivisions
+    ADD CONSTRAINT ref_subdivisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_subject ref_subject_pk; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_subject
+    ADD CONSTRAINT ref_subject_pk PRIMARY KEY (id);
+
+
+--
+-- Name: ref_teachers ref_teachers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_teachers
+    ADD CONSTRAINT ref_teachers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_time_slots ref_time_slots_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_time_slots
+    ADD CONSTRAINT ref_time_slots_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_user_types ref_user_types_code_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_user_types
+    ADD CONSTRAINT ref_user_types_code_key UNIQUE (code);
+
+
+--
+-- Name: ref_user_types ref_user_types_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_user_types
+    ADD CONSTRAINT ref_user_types_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_users ref_users_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_users
+    ADD CONSTRAINT ref_users_email_key UNIQUE (email);
+
+
+--
+-- Name: ref_users ref_users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_users
+    ADD CONSTRAINT ref_users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ref_users ref_users_username_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_users
+    ADD CONSTRAINT ref_users_username_key UNIQUE (username);
+
+
+--
+-- Name: op_schedule_items unique_audience_time; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT unique_audience_time UNIQUE (date, time_slot_id, audience_id);
+
+
+--
+-- Name: idx_final_schedule_date; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_final_schedule_date ON public.op_final_schedule USING btree (date);
+
+
+--
+-- Name: op_final_schedule fk_final_audience; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_final_schedule
+    ADD CONSTRAINT fk_final_audience FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id);
+
+
+--
+-- Name: op_final_schedule fk_final_lesson; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_final_schedule
+    ADD CONSTRAINT fk_final_lesson FOREIGN KEY (lesson_id) REFERENCES public.op_lessons(id) ON DELETE CASCADE;
+
+
+--
+-- Name: op_final_schedule fk_final_timeslot; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_final_schedule
+    ADD CONSTRAINT fk_final_timeslot FOREIGN KEY (time_slot_id) REFERENCES public.ref_time_slots(id);
+
+
+--
+-- Name: op_audiences_of_pairs op_audiences_of_pairs_ref_audiences_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_pairs
+    ADD CONSTRAINT op_audiences_of_pairs_ref_audiences_fk FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id);
+
+
+--
+-- Name: op_audiences_of_pairs op_audiences_of_pairs_ref_subject_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_pairs
+    ADD CONSTRAINT op_audiences_of_pairs_ref_subject_fk FOREIGN KEY (subject_id) REFERENCES public.ref_subject(id);
+
+
+--
+-- Name: op_audiences_of_subdivisions op_audiences_of_subdivisions_audience_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_subdivisions
+    ADD CONSTRAINT op_audiences_of_subdivisions_audience_id_fkey FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id) DEFERRABLE;
+
+
+--
+-- Name: op_audiences_of_subdivisions op_audiences_of_subdivisions_audience_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_subdivisions
+    ADD CONSTRAINT op_audiences_of_subdivisions_audience_id_fkey1 FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id) DEFERRABLE;
+
+
+--
+-- Name: op_audiences_of_subdivisions op_audiences_of_subdivisions_audience_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_subdivisions
+    ADD CONSTRAINT op_audiences_of_subdivisions_audience_id_fkey2 FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id) DEFERRABLE;
+
+
+--
+-- Name: op_audiences_of_subdivisions op_audiences_of_subdivisions_audience_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_subdivisions
+    ADD CONSTRAINT op_audiences_of_subdivisions_audience_id_fkey3 FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id) DEFERRABLE;
+
+
+--
+-- Name: op_audiences_of_subdivisions op_audiences_of_subdivisions_subdivision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_subdivisions
+    ADD CONSTRAINT op_audiences_of_subdivisions_subdivision_id_fkey FOREIGN KEY (subdivision_id) REFERENCES public.ref_subdivisions(id) DEFERRABLE;
+
+
+--
+-- Name: op_audiences_of_subdivisions op_audiences_of_subdivisions_subdivision_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_subdivisions
+    ADD CONSTRAINT op_audiences_of_subdivisions_subdivision_id_fkey1 FOREIGN KEY (subdivision_id) REFERENCES public.ref_subdivisions(id) DEFERRABLE;
+
+
+--
+-- Name: op_audiences_of_subdivisions op_audiences_of_subdivisions_subdivision_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_subdivisions
+    ADD CONSTRAINT op_audiences_of_subdivisions_subdivision_id_fkey2 FOREIGN KEY (subdivision_id) REFERENCES public.ref_subdivisions(id) DEFERRABLE;
+
+
+--
+-- Name: op_audiences_of_subdivisions op_audiences_of_subdivisions_subdivision_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_audiences_of_subdivisions
+    ADD CONSTRAINT op_audiences_of_subdivisions_subdivision_id_fkey3 FOREIGN KEY (subdivision_id) REFERENCES public.ref_subdivisions(id) DEFERRABLE;
+
+
+--
+-- Name: op_groups_of_pairs op_groups_of_pairs_ref_groups_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_groups_of_pairs
+    ADD CONSTRAINT op_groups_of_pairs_ref_groups_fk FOREIGN KEY (group_id) REFERENCES public.ref_groups(id);
+
+
+--
+-- Name: op_groups_of_pairs op_groups_of_pairs_ref_subject_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_groups_of_pairs
+    ADD CONSTRAINT op_groups_of_pairs_ref_subject_fk FOREIGN KEY (subject_id) REFERENCES public.ref_subject(id);
+
+
+--
+-- Name: op_insertions op_insertions_faculty_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_insertions
+    ADD CONSTRAINT op_insertions_faculty_id_fkey FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: op_insertions op_insertions_faculty_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_insertions
+    ADD CONSTRAINT op_insertions_faculty_id_fkey1 FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: op_insertions op_insertions_faculty_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_insertions
+    ADD CONSTRAINT op_insertions_faculty_id_fkey2 FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: op_insertions op_insertions_faculty_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_insertions
+    ADD CONSTRAINT op_insertions_faculty_id_fkey3 FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: op_lessons op_lessons_insertion_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_lessons
+    ADD CONSTRAINT op_lessons_insertion_id_fkey3 FOREIGN KEY (insertion_id) REFERENCES public.op_insertions(id) DEFERRABLE;
+
+
+--
+-- Name: op_lessons op_lessons_ref_subject_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_lessons
+    ADD CONSTRAINT op_lessons_ref_subject_fk FOREIGN KEY (id) REFERENCES public.ref_subject(id);
+
+
+--
+-- Name: op_lessons op_lessons_time_slot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_lessons
+    ADD CONSTRAINT op_lessons_time_slot_id_fkey FOREIGN KEY (time_slot_id) REFERENCES public.ref_time_slots(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_granted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_granted_by_fkey FOREIGN KEY (granted_by) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_granted_by_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_granted_by_fkey1 FOREIGN KEY (granted_by) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_granted_by_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_granted_by_fkey2 FOREIGN KEY (granted_by) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_granted_by_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_granted_by_fkey3 FOREIGN KEY (granted_by) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_permission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_permission_id_fkey FOREIGN KEY (permission_id) REFERENCES public.ref_permissions(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_permission_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_permission_id_fkey1 FOREIGN KEY (permission_id) REFERENCES public.ref_permissions(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_permission_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_permission_id_fkey2 FOREIGN KEY (permission_id) REFERENCES public.ref_permissions(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_permission_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_permission_id_fkey3 FOREIGN KEY (permission_id) REFERENCES public.ref_permissions(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_role_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.ref_roles(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_role_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_role_id_fkey1 FOREIGN KEY (role_id) REFERENCES public.ref_roles(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_role_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_role_id_fkey2 FOREIGN KEY (role_id) REFERENCES public.ref_roles(id) DEFERRABLE;
+
+
+--
+-- Name: op_role_permissions op_role_permissions_role_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_role_permissions
+    ADD CONSTRAINT op_role_permissions_role_id_fkey3 FOREIGN KEY (role_id) REFERENCES public.ref_roles(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items_1 op_schedule_items_1_audience_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items_1
+    ADD CONSTRAINT op_schedule_items_1_audience_id_fkey FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id);
+
+
+--
+-- Name: op_schedule_items_1 op_schedule_items_1_lesson_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items_1
+    ADD CONSTRAINT op_schedule_items_1_lesson_id_fkey FOREIGN KEY (lesson_id) REFERENCES public.op_lessons(id);
+
+
+--
+-- Name: op_schedule_items_1 op_schedule_items_1_time_slot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items_1
+    ADD CONSTRAINT op_schedule_items_1_time_slot_id_fkey FOREIGN KEY (time_slot_id) REFERENCES public.ref_time_slots(id);
+
+
+--
+-- Name: op_schedule_items op_schedule_items_audience_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_audience_id_fkey FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_audience_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_audience_id_fkey1 FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_audience_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_audience_id_fkey2 FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_audience_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_audience_id_fkey3 FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_lesson_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_lesson_id_fkey FOREIGN KEY (lesson_id) REFERENCES public.op_lessons(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_lesson_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_lesson_id_fkey1 FOREIGN KEY (lesson_id) REFERENCES public.op_lessons(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_lesson_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_lesson_id_fkey2 FOREIGN KEY (lesson_id) REFERENCES public.op_lessons(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_lesson_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_lesson_id_fkey3 FOREIGN KEY (lesson_id) REFERENCES public.op_lessons(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_time_slot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_time_slot_id_fkey FOREIGN KEY (time_slot_id) REFERENCES public.ref_time_slots(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_time_slot_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_time_slot_id_fkey1 FOREIGN KEY (time_slot_id) REFERENCES public.ref_time_slots(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_time_slot_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_time_slot_id_fkey2 FOREIGN KEY (time_slot_id) REFERENCES public.ref_time_slots(id) DEFERRABLE;
+
+
+--
+-- Name: op_schedule_items op_schedule_items_time_slot_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_schedule_items
+    ADD CONSTRAINT op_schedule_items_time_slot_id_fkey3 FOREIGN KEY (time_slot_id) REFERENCES public.ref_time_slots(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_users op_teacher_users_teacher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.ref_teachers(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_users op_teacher_users_teacher_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_teacher_id_fkey1 FOREIGN KEY (teacher_id) REFERENCES public.ref_teachers(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_users op_teacher_users_teacher_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_teacher_id_fkey2 FOREIGN KEY (teacher_id) REFERENCES public.ref_teachers(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_users op_teacher_users_teacher_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_teacher_id_fkey3 FOREIGN KEY (teacher_id) REFERENCES public.ref_teachers(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_users op_teacher_users_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_users op_teacher_users_user_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_user_id_fkey1 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_users op_teacher_users_user_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_user_id_fkey2 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_users op_teacher_users_user_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_users
+    ADD CONSTRAINT op_teacher_users_user_id_fkey3 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_work_windows op_teacher_work_windows_teacher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_work_windows
+    ADD CONSTRAINT op_teacher_work_windows_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.ref_teachers(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_work_windows op_teacher_work_windows_teacher_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_work_windows
+    ADD CONSTRAINT op_teacher_work_windows_teacher_id_fkey1 FOREIGN KEY (teacher_id) REFERENCES public.ref_teachers(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_work_windows op_teacher_work_windows_teacher_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_work_windows
+    ADD CONSTRAINT op_teacher_work_windows_teacher_id_fkey2 FOREIGN KEY (teacher_id) REFERENCES public.ref_teachers(id) DEFERRABLE;
+
+
+--
+-- Name: op_teacher_work_windows op_teacher_work_windows_teacher_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teacher_work_windows
+    ADD CONSTRAINT op_teacher_work_windows_teacher_id_fkey3 FOREIGN KEY (teacher_id) REFERENCES public.ref_teachers(id) DEFERRABLE;
+
+
+--
+-- Name: op_teachers_groups op_teachers_groups_ref_groups_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teachers_groups
+    ADD CONSTRAINT op_teachers_groups_ref_groups_fk FOREIGN KEY (groups_id) REFERENCES public.ref_groups(id);
+
+
+--
+-- Name: op_teachers_groups op_teachers_groups_ref_teachers_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teachers_groups
+    ADD CONSTRAINT op_teachers_groups_ref_teachers_fk FOREIGN KEY (teachers_id) REFERENCES public.ref_teachers(id);
+
+
+--
+-- Name: op_teachers_of_pairs op_teachers_of_pairs_ref_subject_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teachers_of_pairs
+    ADD CONSTRAINT op_teachers_of_pairs_ref_subject_fk FOREIGN KEY (subject_id) REFERENCES public.ref_subject(id);
+
+
+--
+-- Name: op_teachers_of_pairs op_teachers_of_pairs_ref_teachers_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_teachers_of_pairs
+    ADD CONSTRAINT op_teachers_of_pairs_ref_teachers_fk FOREIGN KEY (teacher_id) REFERENCES public.ref_teachers(id);
+
+
+--
+-- Name: op_templates op_templates_op_lessons_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_templates
+    ADD CONSTRAINT op_templates_op_lessons_fk FOREIGN KEY (lesson_id) REFERENCES public.op_lessons(id);
+
+
+--
+-- Name: op_templates op_templates_op_name_of_sample_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_templates
+    ADD CONSTRAINT op_templates_op_name_of_sample_fk FOREIGN KEY (name_of_sample_id) REFERENCES public.op_name_of_sample(id);
+
+
+--
+-- Name: op_templates op_templates_ref_audiences_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_templates
+    ADD CONSTRAINT op_templates_ref_audiences_fk FOREIGN KEY (audience_id) REFERENCES public.ref_audiences(id);
+
+
+--
+-- Name: op_templates op_templates_ref_days_of_the_week_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_templates
+    ADD CONSTRAINT op_templates_ref_days_of_the_week_fk FOREIGN KEY (day_of_week_id) REFERENCES public.ref_days_of_the_week(id);
+
+
+--
+-- Name: op_templates op_templates_ref_time_slots_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_templates
+    ADD CONSTRAINT op_templates_ref_time_slots_fk FOREIGN KEY (time_slot_id) REFERENCES public.ref_time_slots(id);
+
+
+--
+-- Name: op_user_activity_logs op_user_activity_logs_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_activity_logs
+    ADD CONSTRAINT op_user_activity_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_activity_logs op_user_activity_logs_user_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_activity_logs
+    ADD CONSTRAINT op_user_activity_logs_user_id_fkey1 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_activity_logs op_user_activity_logs_user_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_activity_logs
+    ADD CONSTRAINT op_user_activity_logs_user_id_fkey2 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_activity_logs op_user_activity_logs_user_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_activity_logs
+    ADD CONSTRAINT op_user_activity_logs_user_id_fkey3 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_faculties op_user_faculties_faculty_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_faculties
+    ADD CONSTRAINT op_user_faculties_faculty_id_fkey FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_faculties op_user_faculties_faculty_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_faculties
+    ADD CONSTRAINT op_user_faculties_faculty_id_fkey1 FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_faculties op_user_faculties_faculty_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_faculties
+    ADD CONSTRAINT op_user_faculties_faculty_id_fkey2 FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_faculties op_user_faculties_faculty_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_faculties
+    ADD CONSTRAINT op_user_faculties_faculty_id_fkey3 FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_faculties op_user_faculties_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_faculties
+    ADD CONSTRAINT op_user_faculties_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_faculties op_user_faculties_user_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_faculties
+    ADD CONSTRAINT op_user_faculties_user_id_fkey1 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_faculties op_user_faculties_user_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_faculties
+    ADD CONSTRAINT op_user_faculties_user_id_fkey2 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_faculties op_user_faculties_user_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_faculties
+    ADD CONSTRAINT op_user_faculties_user_id_fkey3 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_assigned_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_assigned_by_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_assigned_by_fkey1 FOREIGN KEY (assigned_by) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_assigned_by_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_assigned_by_fkey2 FOREIGN KEY (assigned_by) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_assigned_by_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_assigned_by_fkey3 FOREIGN KEY (assigned_by) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_role_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.ref_roles(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_role_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_role_id_fkey1 FOREIGN KEY (role_id) REFERENCES public.ref_roles(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_role_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_role_id_fkey2 FOREIGN KEY (role_id) REFERENCES public.ref_roles(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_role_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_role_id_fkey3 FOREIGN KEY (role_id) REFERENCES public.ref_roles(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_user_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_user_id_fkey1 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_user_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_user_id_fkey2 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: op_user_roles op_user_roles_user_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.op_user_roles
+    ADD CONSTRAINT op_user_roles_user_id_fkey3 FOREIGN KEY (user_id) REFERENCES public.ref_users(id) DEFERRABLE;
+
+
+--
+-- Name: ref_audiences ref_audiences_building_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_audiences
+    ADD CONSTRAINT ref_audiences_building_id_fkey FOREIGN KEY (building_id) REFERENCES public.ref_buildings(id) DEFERRABLE;
+
+
+--
+-- Name: ref_audiences ref_audiences_building_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_audiences
+    ADD CONSTRAINT ref_audiences_building_id_fkey1 FOREIGN KEY (building_id) REFERENCES public.ref_buildings(id) DEFERRABLE;
+
+
+--
+-- Name: ref_audiences ref_audiences_building_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_audiences
+    ADD CONSTRAINT ref_audiences_building_id_fkey2 FOREIGN KEY (building_id) REFERENCES public.ref_buildings(id) DEFERRABLE;
+
+
+--
+-- Name: ref_audiences ref_audiences_building_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_audiences
+    ADD CONSTRAINT ref_audiences_building_id_fkey3 FOREIGN KEY (building_id) REFERENCES public.ref_buildings(id) DEFERRABLE;
+
+
+--
+-- Name: ref_groups ref_groups_faculty_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_groups
+    ADD CONSTRAINT ref_groups_faculty_id_fkey FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: ref_groups ref_groups_faculty_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_groups
+    ADD CONSTRAINT ref_groups_faculty_id_fkey1 FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: ref_groups ref_groups_faculty_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_groups
+    ADD CONSTRAINT ref_groups_faculty_id_fkey2 FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: ref_groups ref_groups_faculty_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_groups
+    ADD CONSTRAINT ref_groups_faculty_id_fkey3 FOREIGN KEY (faculty_id) REFERENCES public.ref_faculties(id) DEFERRABLE;
+
+
+--
+-- Name: ref_users ref_users_user_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_users
+    ADD CONSTRAINT ref_users_user_type_id_fkey FOREIGN KEY (user_type_id) REFERENCES public.ref_user_types(id) DEFERRABLE;
+
+
+--
+-- Name: ref_users ref_users_user_type_id_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_users
+    ADD CONSTRAINT ref_users_user_type_id_fkey1 FOREIGN KEY (user_type_id) REFERENCES public.ref_user_types(id) DEFERRABLE;
+
+
+--
+-- Name: ref_users ref_users_user_type_id_fkey2; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_users
+    ADD CONSTRAINT ref_users_user_type_id_fkey2 FOREIGN KEY (user_type_id) REFERENCES public.ref_user_types(id) DEFERRABLE;
+
+
+--
+-- Name: ref_users ref_users_user_type_id_fkey3; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ref_users
+    ADD CONSTRAINT ref_users_user_type_id_fkey3 FOREIGN KEY (user_type_id) REFERENCES public.ref_user_types(id) DEFERRABLE;
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+\unrestrict yMcWysojdSVHr3T5GbYpMwzQla6FbSjWWZ9U3UebCKxSgzja0febzTRIOy9OKxK
+
