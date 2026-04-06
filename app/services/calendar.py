@@ -3,15 +3,7 @@ from sqlalchemy import select, update, delete
 from app.models.reference import Calendar
 from app.schemas.calendar import CalendarCreate, CalendarUpdate
 from typing import List
-from sqlalchemy import select, update, delete
-from app.models.reference import Calendar
-from app.schemas.calendar import CalendarCreate, CalendarUpdate
 
-# ... функции
-async def bulk_delete_calendar(db: AsyncSession, ids: List[int]) -> None:
-    await db.execute(delete(Calendar).where(Calendar.id.in_(ids)))
-    await db.commit()
-    
 async def get_all_calendar(db: AsyncSession):
     result = await db.execute(select(Calendar).order_by(Calendar.date))
     return result.scalars().all()

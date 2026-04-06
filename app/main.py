@@ -8,40 +8,55 @@ from sqlalchemy import text
 
 from app.api.v1 import router as v1_router
 from app.core.database import get_db
-from app.services import group as group_service
-from app.services import teacher as teacher_service
-from app.services import audience as audience_service
-from app.services import faculty as faculty_service
-from app.services import building as building_service
-from app.services import calendar as calendar_service
+from app.services import (
+    group as group_service,
+    teacher as teacher_service,
+    audience as audience_service,
+    faculty as faculty_service,
+    building as building_service,
+    calendar as calendar_service,
+    user_type as user_type_service,
+    subdivision as subdivision_service,
+    role as role_service,
+    permission as permission_service,
+    time_slot as time_slot_service,
+    subject as subject_service
+)
 from app.services import calendar_sync
 from app.schemas.group import GroupCreate, GroupUpdate
 from app.schemas.teacher import TeacherCreate, TeacherUpdate
 from app.schemas.audience import AudienceCreate, AudienceUpdate
 from app.schemas.building import BuildingCreate, BuildingUpdate
 from app.schemas.calendar import CalendarCreate, CalendarUpdate
-
 from app.schemas.faculty import FacultyCreate, FacultyUpdate
-
 from app.schemas.user_type import UserTypeCreate, UserTypeUpdate
 from app.schemas.subdivision import SubdivisionCreate, SubdivisionUpdate
 from app.schemas.role import RoleCreate, RoleUpdate
 from app.schemas.permission import PermissionCreate, PermissionUpdate
 from app.schemas.time_slot import TimeSlotCreate, TimeSlotUpdate
+from app.schemas.subject import SubjectCreate, SubjectUpdate
 
-from app.services import user_type as user_type_service
-from app.services import subdivision as subdivision_service
-from app.services import role as role_service
-from app.services import permission as permission_service
-from app.services import time_slot as time_slot_service
+from app.services import teacher_group as teacher_group_service
+from app.services import teacher_subject as teacher_subject_service
+from app.services import audience_subject as audience_subject_service
+from app.services import group_subject as group_subject_service
+from app.schemas.teacher_group import TeacherGroupCreate
+from app.schemas.teacher_subject import TeacherSubjectCreate, TeacherSubjectUpdate
+from app.schemas.audience_subject import AudienceSubjectCreate
+from app.schemas.group_subject import GroupSubjectCreate
+from app.services import teacher as teacher_service
+from app.services import group as group_service
+from app.services import subject as subject_service
+from app.services import audience as audience_service
+
 
 app = FastAPI(title="Schedule Generation System")
 app.include_router(v1_router)
 
 # ---------- Вспомогательные функции для рендеринга ----------
+
 def render_groups_html(groups, faculties):
     html = "<h1>Группы</h1>"
-    # Форма добавления
     html += "<form method='post' action='/groups/add'>"
     html += "<input type='text' name='name' placeholder='Название группы' required>"
     html += "<select name='faculty_id' required><option value=''>Выберите факультет</option>"
@@ -51,7 +66,6 @@ def render_groups_html(groups, faculties):
     html += "<input type='number' name='student_count' placeholder='Количество студентов'>"
     html += "<button type='submit'>Добавить</button>"
     html += "</form>"
-    # Форма массового удаления
     html += "<form method='post' action='/groups/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllGroups'> Выделить всё</label>"
@@ -91,8 +105,6 @@ def render_teachers_html(teachers):
     html += "<input type='text' name='login' placeholder='Логин' required>"
     html += "<input type='text' name='name' placeholder='ФИО' required>"
     html += "<input type='text' name='url' placeholder='Ссылка на страницу'>"
-    html += "<input type='number' name='max_hours_per_day' placeholder='Макс. часов в день'>"
-    html += "<input type='number' name='max_hours_per_week' placeholder='Макс. часов в неделю'>"
     html += "<button type='submit'>Добавить</button>"
     html += "</form>"
     html += "<form method='post' action='/teachers/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
@@ -101,8 +113,10 @@ def render_teachers_html(teachers):
     html += "<ul>"
     for t in teachers:
         html += f"<li><input type='checkbox' name='ids' value='{t.id}'> "
-        html += f"{t.name} (Логин: {t.login}, День: {t.max_hours_per_day or 'нет'}, Неделя: {t.max_hours_per_week or 'нет'}) "
-        html += f"<a href='/teachers/edit/{t.id}'>Редактировать</a> "
+        html += f"{t.name} (Логин: {t.login})"
+        if t.url:
+            html += f" – <a href='{t.url}'>страница</a>"
+        html += f" <a href='/teachers/edit/{t.id}'>Редактировать</a> "
         html += f"<a href='/teachers/delete/{t.id}'>Удалить</a></li>"
     html += "</ul>"
     html += "</form>"
@@ -455,6 +469,221 @@ def render_time_slots_html(time_slots):
     """
     return html
 
+def render_subjects_html(subjects):
+    html = "<h1>Дисциплины</h1>"
+    html += "<form method='post' action='/subjects/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
+    html += "<button type='submit'>Удалить выбранные</button>"
+    html += "<label><input type='checkbox' id='selectAllSubjects'> Выделить всё</label>"
+    html += "<ul>"
+    for s in subjects:
+        html += f"<li><input type='checkbox' name='ids' value='{s.id}'> "
+        html += f"{s.name} "
+        html += f"<a href='/subjects/edit/{s.id}'>Редактировать</a> "
+        html += f"<a href='/subjects/delete/{s.id}'>Удалить</a></li>"
+    html += "</ul>"
+    html += "</form>"
+    html += "<form method='post' action='/subjects/add' style='margin-top: 20px;'>"
+    html += "<input type='text' name='name' placeholder='Название дисциплины' required>"
+    html += "<button type='submit'>Добавить</button>"
+    html += "</form>"
+    html += "<a href='/'>На главную</a>"
+    html += """
+    <script>
+        const selectAll = document.getElementById('selectAllSubjects');
+        if (selectAll) {
+            selectAll.addEventListener('change', function() {
+                const checkboxes = document.querySelectorAll('input[name="ids"]');
+                checkboxes.forEach(cb => cb.checked = selectAll.checked);
+            });
+        }
+    </script>
+    """
+    return html
+
+# ---------- Рендеринг для связей ----------
+def render_teacher_groups_html(teacher_groups, teachers, groups):
+    html = "<h1>Связи преподавателей и групп</h1>"
+    html += "<form method='post' action='/teacher-groups/add'>"
+    html += "<div style='display: flex; gap: 20px;'>"
+    html += "<div><label>Преподаватели (Ctrl+клик для множественного выбора):</label><br>"
+    html += "<select name='teacher_ids' multiple size='6' style='min-width: 200px;'>"
+    for t in teachers:
+        html += f"<option value='{t.id}'>{t.name}</option>"
+    html += "</select></div>"
+    html += "<div><label>Группы (Ctrl+клик для множественного выбора):</label><br>"
+    html += "<select name='group_ids' multiple size='6' style='min-width: 200px;'>"
+    for g in groups:
+        html += f"<option value='{g.id}'>{g.name}</option>"
+    html += "</select></div>"
+    html += "</div>"
+    html += "<button type='submit'>Добавить выбранные комбинации</button>"
+    html += "</form>"
+    html += "<form method='post' action='/teacher-groups/bulk-delete' onsubmit='return confirmDeleteSelectedTG();'>"
+    html += "<button type='submit'>Удалить выбранные</button>"
+    html += "<label><input type='checkbox' id='selectAllTG'> Выделить всё</label>"
+    html += "<ul>"
+    for tg in teacher_groups:
+        html += f"<li><input type='checkbox' name='ids' value='{tg['teacher_id']},{tg['group_id']}'> "
+        html += f"{tg['teacher_id']} – {tg['group_id']} (Преподаватель ID: {tg['teacher_id']}, Группа ID: {tg['group_id']}) "
+        html += f"<a href='/teacher-groups/delete/{tg['teacher_id']}/{tg['group_id']}'>Удалить</a></li>"
+    html += "</ul>"
+    html += "</form>"
+    html += "<a href='/'>На главную</a>"
+    html += """
+    <script>
+        const selectAllTG = document.getElementById('selectAllTG');
+        if(selectAllTG) selectAllTG.addEventListener('change', function() {
+            document.querySelectorAll('input[name="ids"]').forEach(cb => cb.checked = selectAllTG.checked);
+        });
+        function confirmDeleteSelectedTG() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Удалить выбранные связи?');
+        }
+    </script>
+    """
+    return html
+
+def render_teacher_subjects_html(teacher_subjects, teachers, subjects):
+    html = "<h1>Связи преподавателей и предметов</h1>"
+    # Форма массового добавления (мульти-выбор)
+    html += "<form method='post' action='/teacher-subjects/add'>"
+    html += "<div style='display: flex; gap: 20px; margin-bottom: 20px;'>"
+    html += "<div><label>Преподаватели (Ctrl+клик для множественного выбора):</label><br>"
+    html += "<select name='teacher_ids' multiple size='6' style='min-width: 200px;'>"
+    for t in teachers:
+        html += f"<option value='{t.id}'>{t.name}</option>"
+    html += "</select></div>"
+    html += "<div><label>Предметы (Ctrl+клик для множественного выбора):</label><br>"
+    html += "<select name='subject_ids' multiple size='6' style='min-width: 200px;'>"
+    for s in subjects:
+        html += f"<option value='{s.id}'>{s.name}</option>"
+    html += "</select></div>"
+    html += "</div>"
+    html += "<label><input type='checkbox' name='is_main' value='true'> Основной преподаватель (для всех выбранных комбинаций)</label><br>"
+    html += "<button type='submit'>Добавить выбранные комбинации</button>"
+    html += "</form>"
+
+    # Форма массового удаления и список существующих связей
+    html += "<form method='post' action='/teacher-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedTS();'>"
+    html += "<button type='submit'>Удалить выбранные</button>"
+    html += "<label><input type='checkbox' id='selectAllTS'> Выделить всё</label>"
+    html += "<ul>"
+    for ts in teacher_subjects:
+        html += f"<li><input type='checkbox' name='ids' value='{ts['teacher_id']},{ts['subject_id']}'> "
+        html += f"Преподаватель ID: {ts['teacher_id']}, Предмет ID: {ts['subject_id']}, Основной: {ts['is_main']} "
+        html += f"<a href='/teacher-subjects/edit/{ts['teacher_id']}/{ts['subject_id']}'>Редактировать</a> "
+        html += f"<a href='/teacher-subjects/delete/{ts['teacher_id']}/{ts['subject_id']}'>Удалить</a></li>"
+    html += "</ul>"
+    html += "</form>"
+    html += "<a href='/'>На главную</a>"
+    html += """
+    <script>
+        const selectAllTS = document.getElementById('selectAllTS');
+        if(selectAllTS) selectAllTS.addEventListener('change', function() {
+            document.querySelectorAll('input[name="ids"]').forEach(cb => cb.checked = selectAllTS.checked);
+        });
+        function confirmDeleteSelectedTS() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Удалить выбранные связи?');
+        }
+    </script>
+    """
+    return html
+
+def render_audience_subjects_html(audience_subjects, audiences, subjects):
+    html = "<h1>Связи аудиторий и предметов</h1>"
+    # Форма массового добавления
+    html += "<form method='post' action='/audience-subjects/add'>"
+    html += "<div style='display: flex; gap: 20px; margin-bottom: 20px;'>"
+    html += "<div><label>Аудитории (Ctrl+клик для множественного выбора):</label><br>"
+    html += "<select name='audience_ids' multiple size='6' style='min-width: 200px;'>"
+    for a in audiences:
+        html += f"<option value='{a.id}'>{a.name}</option>"
+    html += "</select></div>"
+    html += "<div><label>Предметы (Ctrl+клик для множественного выбора):</label><br>"
+    html += "<select name='subject_ids' multiple size='6' style='min-width: 200px;'>"
+    for s in subjects:
+        html += f"<option value='{s.id}'>{s.name}</option>"
+    html += "</select></div>"
+    html += "</div>"
+    html += "<button type='submit'>Добавить выбранные комбинации</button>"
+    html += "</form>"
+
+    # Форма массового удаления и список
+    html += "<form method='post' action='/audience-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedAS();'>"
+    html += "<button type='submit'>Удалить выбранные</button>"
+    html += "<label><input type='checkbox' id='selectAllAS'> Выделить всё</label>"
+    html += "<ul>"
+    for asub in audience_subjects:
+        html += f"<li><input type='checkbox' name='ids' value='{asub['audience_id']},{asub['subject_id']}'> "
+        html += f"Аудитория ID: {asub['audience_id']}, Предмет ID: {asub['subject_id']} "
+        html += f"<a href='/audience-subjects/delete/{asub['audience_id']}/{asub['subject_id']}'>Удалить</a></li>"
+    html += "</ul>"
+    html += "</form>"
+    html += "<a href='/'>На главную</a>"
+    html += """
+    <script>
+        const selectAllAS = document.getElementById('selectAllAS');
+        if(selectAllAS) selectAllAS.addEventListener('change', function() {
+            document.querySelectorAll('input[name="ids"]').forEach(cb => cb.checked = selectAllAS.checked);
+        });
+        function confirmDeleteSelectedAS() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Удалить выбранные связи?');
+        }
+    </script>
+    """
+    return html
+
+def render_group_subjects_html(group_subjects, groups, subjects):
+    html = "<h1>Связи групп и предметов</h1>"
+    # Форма массового добавления
+    html += "<form method='post' action='/group-subjects/add'>"
+    html += "<div style='display: flex; gap: 20px; margin-bottom: 20px;'>"
+    html += "<div><label>Группы (Ctrl+клик для множественного выбора):</label><br>"
+    html += "<select name='group_ids' multiple size='6' style='min-width: 200px;'>"
+    for g in groups:
+        html += f"<option value='{g.id}'>{g.name}</option>"
+    html += "</select></div>"
+    html += "<div><label>Предметы (Ctrl+клик для множественного выбора):</label><br>"
+    html += "<select name='subject_ids' multiple size='6' style='min-width: 200px;'>"
+    for s in subjects:
+        html += f"<option value='{s.id}'>{s.name}</option>"
+    html += "</select></div>"
+    html += "</div>"
+    html += "<button type='submit'>Добавить выбранные комбинации</button>"
+    html += "</form>"
+
+    # Форма массового удаления и список
+    html += "<form method='post' action='/group-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedGS();'>"
+    html += "<button type='submit'>Удалить выбранные</button>"
+    html += "<label><input type='checkbox' id='selectAllGS'> Выделить всё</label>"
+    html += "<ul>"
+    for gs in group_subjects:
+        html += f"<li><input type='checkbox' name='ids' value='{gs['group_id']},{gs['subject_id']}'> "
+        html += f"Группа ID: {gs['group_id']}, Предмет ID: {gs['subject_id']} "
+        html += f"<a href='/group-subjects/delete/{gs['group_id']}/{gs['subject_id']}'>Удалить</a></li>"
+    html += "</ul>"
+    html += "</form>"
+    html += "<a href='/'>На главную</a>"
+    html += """
+    <script>
+        const selectAllGS = document.getElementById('selectAllGS');
+        if(selectAllGS) selectAllGS.addEventListener('change', function() {
+            document.querySelectorAll('input[name="ids"]').forEach(cb => cb.checked = selectAllGS.checked);
+        });
+        function confirmDeleteSelectedGS() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Удалить выбранные связи?');
+        }
+    </script>
+    """
+    return html
+
 # ---------- Страницы ----------
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -472,11 +701,23 @@ async def home():
         <li><a href='/roles'>Роли</a></li>
         <li><a href='/permissions'>Права</a></li>
         <li><a href='/time-slots'>Временные слоты</a></li>
+        <li><a href='/subjects'>Дисциплины</a></li>
+        <li><a href='/teacher-groups'>Связи: преподаватели-группы</a></li>
+        <li><a href='/teacher-subjects'>Связи: преподаватели-предметы</a></li>
+        <li><a href='/audience-subjects'>Связи: аудитории-предметы</a></li>
+        <li><a href='/group-subjects'>Связи: группы-предметы</a></li>
         <li><a href='/docs'>Swagger API</a></li>
-        <li><a href='/generate-schedule'>Сгенерировать расписание</a></li>
-        <li><a href='/get-schedule'>Получить расписание (JSON)</a></li>
-        <li><a href='/dispatcher-proxy'>Просмотр расписания (диспетчер)</a></li>
-        <li><a href='http://localhost:8001/docs'>Swagger генератора</a></li>
+        <li>
+            <form method='post' action='/api/v1/generation/generate' style='display: inline;'>
+                <button type='submit' style='background: none; border: none; color: blue; text-decoration: underline; cursor: pointer;'>
+                    Сгенерировать расписание
+                </button>
+            </form>
+        </li>
+        <li><a href='/api/v1/generation/schedule'>Получить расписание (JSON)</a></li>
+        <li><a href='/api/v1/generation/approve'>Утвердить расписание</a></li>
+        <li><a href='/dispatcher-proxy'>Просмотр расписания (диспетчер через прокси)</a></li>
+        <li><a href='http://localhost:8001/docs'>Swagger генератора (старый)</a></li>
     </ul>
     """)
 
@@ -565,11 +806,9 @@ async def add_teacher(
     login: str = Form(...),
     name: str = Form(...),
     url: str = Form(None),
-    max_hours_per_day: int = Form(None),
-    max_hours_per_week: int = Form(None),
     db: AsyncSession = Depends(get_db)
 ):
-    data = TeacherCreate(login=login, name=name, url=url, max_hours_per_day=max_hours_per_day, max_hours_per_week=max_hours_per_week)
+    data = TeacherCreate(login=login, name=name, url=url)
     await teacher_service.create_teacher(db, data)
     return RedirectResponse(url="/teachers", status_code=303)
 
@@ -584,8 +823,6 @@ async def edit_teacher_form(teacher_id: int, db: AsyncSession = Depends(get_db))
         <input type="text" name="login" value="{teacher.login}" required>
         <input type="text" name="name" value="{teacher.name}" required>
         <input type="text" name="url" value="{teacher.url or ''}">
-        <input type="number" name="max_hours_per_day" value="{teacher.max_hours_per_day or ''}">
-        <input type="number" name="max_hours_per_week" value="{teacher.max_hours_per_week or ''}">
         <button type="submit">Сохранить</button>
     </form>
     <a href="/teachers">Отмена</a>
@@ -598,11 +835,9 @@ async def edit_teacher(
     login: str = Form(...),
     name: str = Form(...),
     url: str = Form(None),
-    max_hours_per_day: int = Form(None),
-    max_hours_per_week: int = Form(None),
     db: AsyncSession = Depends(get_db)
 ):
-    data = TeacherUpdate(login=login, name=name, url=url, max_hours_per_day=max_hours_per_day, max_hours_per_week=max_hours_per_week)
+    data = TeacherUpdate(login=login, name=name, url=url)
     await teacher_service.update_teacher(db, teacher_id, data)
     return RedirectResponse(url="/teachers", status_code=303)
 
@@ -1216,7 +1451,7 @@ async def time_slots_page(db: AsyncSession = Depends(get_db)):
 async def add_time_slot(
     slot_number: int = Form(...),
     name: str = Form(...),
-    start_time: str = Form(...),   # будет парситься в time
+    start_time: str = Form(...),
     end_time: str = Form(...),
     duration_minutes: int = Form(None),
     break_after_minutes: int = Form(None),
@@ -1310,6 +1545,316 @@ async def bulk_delete_time_slots(ids: List[int] = Form(...), db: AsyncSession = 
     await time_slot_service.bulk_delete_time_slots(db, ids)
     return RedirectResponse(url="/time-slots", status_code=303)
 
+# ----- Дисциплины (Subject) -----
+@app.get("/subjects", response_class=HTMLResponse)
+async def subjects_page(db: AsyncSession = Depends(get_db)):
+    subjects = await subject_service.get_all_subjects(db)
+    return HTMLResponse(content=render_subjects_html(subjects))
+
+@app.post("/subjects/add", response_model=None)
+async def add_subject(
+    name: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    data = SubjectCreate(name=name)
+    await subject_service.create_subject(db, data)
+    return RedirectResponse(url="/subjects", status_code=303)
+
+@app.get("/subjects/edit/{subject_id}", response_class=HTMLResponse)
+async def edit_subject_form(subject_id: int, db: AsyncSession = Depends(get_db)):
+    subject = await subject_service.get_subject(db, subject_id)
+    if not subject:
+        return HTMLResponse("Дисциплина не найдена", status_code=404)
+    html = f"""
+    <h1>Редактировать дисциплину</h1>
+    <form method="post" action="/subjects/edit/{subject_id}">
+        <input type="text" name="name" value="{subject.name}" required>
+        <button type="submit">Сохранить</button>
+    </form>
+    <a href="/subjects">Отмена</a>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/subjects/edit/{subject_id}", response_model=None)
+async def edit_subject(
+    subject_id: int,
+    name: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    data = SubjectUpdate(name=name)
+    await subject_service.update_subject(db, subject_id, data)
+    return RedirectResponse(url="/subjects", status_code=303)
+
+@app.get("/subjects/delete/{subject_id}", response_class=HTMLResponse)
+async def confirm_delete_subject(subject_id: int, db: AsyncSession = Depends(get_db)):
+    subject = await subject_service.get_subject(db, subject_id)
+    if not subject:
+        return HTMLResponse("Дисциплина не найдена", status_code=404)
+    html = f"""
+    <h1>Удалить дисциплину "{subject.name}"?</h1>
+    <form method="post" action="/subjects/delete/{subject_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/subjects">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/subjects/delete/{subject_id}", response_model=None)
+async def delete_subject(subject_id: int, db: AsyncSession = Depends(get_db)):
+    await subject_service.delete_subject(db, subject_id)
+    return RedirectResponse(url="/subjects", status_code=303)
+
+@app.post("/subjects/bulk-delete", response_model=None)
+async def bulk_delete_subjects(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
+    await subject_service.bulk_delete_subjects(db, ids)
+    return RedirectResponse(url="/subjects", status_code=303)
+
+# ----- Связь преподаватель-группа -----
+@app.get("/teacher-groups", response_class=HTMLResponse)
+async def teacher_groups_page(db: AsyncSession = Depends(get_db)):
+    teachers = await teacher_service.get_all_teachers(db)
+    groups = await group_service.get_all_groups(db)
+    teacher_groups = await teacher_group_service.get_all_teacher_groups(db)
+    return HTMLResponse(content=render_teacher_groups_html(teacher_groups, teachers, groups))
+
+@app.post("/teacher-groups/add", response_model=None)
+async def add_teacher_group(
+    teacher_ids: List[int] = Form(...),
+    group_ids: List[int] = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    added = 0
+    skipped = 0
+    for t_id in teacher_ids:
+        for g_id in group_ids:
+            result = await teacher_group_service.create_teacher_group(db, t_id, g_id)
+            if result:
+                added += 1
+            else:
+                skipped += 1
+    message = f"Добавлено {added} связей"
+    if skipped:
+        message += f", пропущено (уже существовало) {skipped}"
+    return RedirectResponse(url="/teacher-groups", status_code=303)
+
+@app.post("/teacher-groups/bulk-delete", response_model=None)
+async def bulk_delete_teacher_groups(ids: List[str] = Form(...), db: AsyncSession = Depends(get_db)):
+    pairs = []
+    for item in ids:
+        parts = item.split(',')
+        if len(parts) == 2:
+            pairs.append((int(parts[0]), int(parts[1])))
+    await teacher_group_service.bulk_delete_teacher_groups(db, pairs)
+    return RedirectResponse(url="/teacher-groups", status_code=303)
+
+@app.get("/teacher-groups/delete/{teacher_id}/{group_id}", response_class=HTMLResponse)
+async def confirm_delete_teacher_group(teacher_id: int, group_id: int, db: AsyncSession = Depends(get_db)):
+    html = f"""
+    <h1>Удалить связь преподавателя {teacher_id} и группы {group_id}?</h1>
+    <form method="post" action="/teacher-groups/delete/{teacher_id}/{group_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/teacher-groups">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/teacher-groups/delete/{teacher_id}/{group_id}", response_model=None)
+async def delete_teacher_group(teacher_id: int, group_id: int, db: AsyncSession = Depends(get_db)):
+    await teacher_group_service.delete_teacher_group(db, teacher_id, group_id)
+    return RedirectResponse(url="/teacher-groups", status_code=303)
+
+# ----- Связь преподаватель-предмет -----
+@app.get("/teacher-subjects", response_class=HTMLResponse)
+async def teacher_subjects_page(db: AsyncSession = Depends(get_db)):
+    teachers = await teacher_service.get_all_teachers(db)
+    subjects = await subject_service.get_all_subjects(db)
+    teacher_subjects = await teacher_subject_service.get_all_teacher_subjects(db)
+    return HTMLResponse(content=render_teacher_subjects_html(teacher_subjects, teachers, subjects))
+
+@app.post("/teacher-subjects/add", response_model=None)
+async def add_teacher_subject(
+    teacher_ids: List[int] = Form(...),
+    subject_ids: List[int] = Form(...),
+    is_main: bool = Form(False),
+    db: AsyncSession = Depends(get_db)
+):
+    added = 0
+    skipped = 0
+    for t_id in teacher_ids:
+        for s_id in subject_ids:
+            result = await teacher_subject_service.create_teacher_subject(db, t_id, s_id, is_main)
+            if result:
+                added += 1
+            else:
+                skipped += 1
+    message = f"Добавлено {added} связей"
+    if skipped:
+        message += f", пропущено {skipped}"
+    return RedirectResponse(url="/teacher-subjects", status_code=303)
+
+@app.post("/teacher-subjects/bulk-delete", response_model=None)
+async def bulk_delete_teacher_subjects(ids: List[str] = Form(...), db: AsyncSession = Depends(get_db)):
+    pairs = []
+    for item in ids:
+        parts = item.split(',')
+        if len(parts) == 2:
+            pairs.append((int(parts[0]), int(parts[1])))
+    await teacher_subject_service.bulk_delete_teacher_subjects(db, pairs)
+    return RedirectResponse(url="/teacher-subjects", status_code=303)
+
+@app.get("/teacher-subjects/edit/{teacher_id}/{subject_id}", response_class=HTMLResponse)
+async def edit_teacher_subject_form(teacher_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
+    # Получим текущую связь (можно через сервис, но у нас нет функции get_one, добавим позже)
+    # Для простоты сделаем форму с чекбоксом is_main, загрузив текущее значение
+    # Временно получим из базы
+    from sqlalchemy import select
+    from app.models.reference import TeacherSubject
+    result = await db.execute(select(TeacherSubject).where(
+        TeacherSubject.teacher_id == teacher_id,
+        TeacherSubject.subject_id == subject_id
+    ))
+    ts = result.scalar_one_or_none()
+    if not ts:
+        return HTMLResponse("Связь не найдена", status_code=404)
+    html = f"""
+    <h1>Редактировать связь преподавателя {teacher_id} и предмета {subject_id}</h1>
+    <form method="post" action="/teacher-subjects/edit/{teacher_id}/{subject_id}">
+        <label><input type="checkbox" name="is_main" value="true" {'checked' if ts.is_main else ''}> Основной преподаватель</label>
+        <button type="submit">Сохранить</button>
+    </form>
+    <a href="/teacher-subjects">Отмена</a>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/teacher-subjects/edit/{teacher_id}/{subject_id}", response_model=None)
+async def edit_teacher_subject(
+    teacher_id: int, subject_id: int,
+    is_main: bool = Form(False),
+    db: AsyncSession = Depends(get_db)
+):
+    data = TeacherSubjectUpdate(is_main=is_main)
+    await teacher_subject_service.update_teacher_subject(db, teacher_id, subject_id, data)
+    return RedirectResponse(url="/teacher-subjects", status_code=303)
+
+@app.get("/teacher-subjects/delete/{teacher_id}/{subject_id}", response_class=HTMLResponse)
+async def confirm_delete_teacher_subject(teacher_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
+    html = f"""
+    <h1>Удалить связь преподавателя {teacher_id} и предмета {subject_id}?</h1>
+    <form method="post" action="/teacher-subjects/delete/{teacher_id}/{subject_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/teacher-subjects">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/teacher-subjects/delete/{teacher_id}/{subject_id}", response_model=None)
+async def delete_teacher_subject(teacher_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
+    await teacher_subject_service.delete_teacher_subject(db, teacher_id, subject_id)
+    return RedirectResponse(url="/teacher-subjects", status_code=303)
+
+# ----- Связь аудитория-предмет -----
+@app.get("/audience-subjects", response_class=HTMLResponse)
+async def audience_subjects_page(db: AsyncSession = Depends(get_db)):
+    audiences = await audience_service.get_all_audiences(db)
+    subjects = await subject_service.get_all_subjects(db)
+    audience_subjects = await audience_subject_service.get_all_audience_subjects(db)
+    return HTMLResponse(content=render_audience_subjects_html(audience_subjects, audiences, subjects))
+
+@app.post("/audience-subjects/add", response_model=None)
+async def add_audience_subject(
+    audience_ids: List[int] = Form(...),
+    subject_ids: List[int] = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    added = 0
+    skipped = 0
+    for a_id in audience_ids:
+        for s_id in subject_ids:
+            result = await audience_subject_service.create_audience_subject(db, a_id, s_id)
+            if result:
+                added += 1
+            else:
+                skipped += 1
+    return RedirectResponse(url="/audience-subjects", status_code=303)
+
+@app.post("/audience-subjects/bulk-delete", response_model=None)
+async def bulk_delete_audience_subjects(ids: List[str] = Form(...), db: AsyncSession = Depends(get_db)):
+    pairs = []
+    for item in ids:
+        parts = item.split(',')
+        if len(parts) == 2:
+            pairs.append((int(parts[0]), int(parts[1])))
+    await audience_subject_service.bulk_delete_audience_subjects(db, pairs)
+    return RedirectResponse(url="/audience-subjects", status_code=303)
+
+@app.get("/audience-subjects/delete/{audience_id}/{subject_id}", response_class=HTMLResponse)
+async def confirm_delete_audience_subject(audience_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
+    html = f"""
+    <h1>Удалить связь аудитории {audience_id} и предмета {subject_id}?</h1>
+    <form method="post" action="/audience-subjects/delete/{audience_id}/{subject_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/audience-subjects">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/audience-subjects/delete/{audience_id}/{subject_id}", response_model=None)
+async def delete_audience_subject(audience_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
+    await audience_subject_service.delete_audience_subject(db, audience_id, subject_id)
+    return RedirectResponse(url="/audience-subjects", status_code=303)
+
+# ----- Связь группа-предмет -----
+@app.get("/group-subjects", response_class=HTMLResponse)
+async def group_subjects_page(db: AsyncSession = Depends(get_db)):
+    groups = await group_service.get_all_groups(db)
+    subjects = await subject_service.get_all_subjects(db)
+    group_subjects = await group_subject_service.get_all_group_subjects(db)
+    return HTMLResponse(content=render_group_subjects_html(group_subjects, groups, subjects))
+
+@app.post("/group-subjects/add", response_model=None)
+async def add_group_subject(
+    group_ids: List[int] = Form(...),
+    subject_ids: List[int] = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    added = 0
+    skipped = 0
+    for g_id in group_ids:
+        for s_id in subject_ids:
+            result = await group_subject_service.create_group_subject(db, g_id, s_id)
+            if result:
+                added += 1
+            else:
+                skipped += 1
+    # Необязательно: можно сохранить сообщение в сессию, но для простоты редирект
+    return RedirectResponse(url="/group-subjects", status_code=303)
+
+@app.post("/group-subjects/bulk-delete", response_model=None)
+async def bulk_delete_group_subjects(ids: List[str] = Form(...), db: AsyncSession = Depends(get_db)):
+    pairs = []
+    for item in ids:
+        parts = item.split(',')
+        if len(parts) == 2:
+            pairs.append((int(parts[0]), int(parts[1])))
+    await group_subject_service.bulk_delete_group_subjects(db, pairs)
+    return RedirectResponse(url="/group-subjects", status_code=303)
+
+@app.get("/group-subjects/delete/{group_id}/{subject_id}", response_class=HTMLResponse)
+async def confirm_delete_group_subject(group_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
+    html = f"""
+    <h1>Удалить связь группы {group_id} и предмета {subject_id}?</h1>
+    <form method="post" action="/group-subjects/delete/{group_id}/{subject_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/group-subjects">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@app.post("/group-subjects/delete/{group_id}/{subject_id}", response_model=None)
+async def delete_group_subject(group_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
+    await group_subject_service.delete_group_subject(db, group_id, subject_id)
+    return RedirectResponse(url="/group-subjects", status_code=303)
+
 # ========== Тестовый эндпоинт ==========
 @app.get("/db-check")
 async def db_check(db: AsyncSession = Depends(get_db)):
@@ -1317,35 +1862,35 @@ async def db_check(db: AsyncSession = Depends(get_db)):
     version = result.scalar()
     return {"postgres_version": version}
 
-# ---------- Взаимодействие с сервером генерации ----------
+# ---------- Прокси на старый сервер (для совместимости) ----------
 import httpx
 from fastapi import HTTPException, Request
 
 @app.get("/generate-schedule")
-async def generate_schedule():
+async def generate_schedule_old():
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post("http://localhost:8001/api/generate", timeout=30.0)
             response.raise_for_status()
             return response.json()
         except httpx.ConnectError as e:
-            raise HTTPException(status_code=503, detail=f"Не удалось подключиться к серверу генерации: {e}")
+            raise HTTPException(status_code=503, detail=f"Не удалось подключиться к старому серверу генерации: {e}")
         except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="Сервер генерации не ответил вовремя")
+            raise HTTPException(status_code=504, detail="Старый сервер генерации не ответил вовремя")
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=500, detail=f"Ошибка генерации: {e.response.text}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Неожиданная ошибка: {e}")
 
-@app.get("/get-schedule")
-async def get_schedule():
+@app.get("/get-schedule-old")
+async def get_schedule_old():
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get("http://localhost:8001/api/schedule", timeout=30.0)
             response.raise_for_status()
             return response.json()
         except httpx.RequestError as e:
-            raise HTTPException(status_code=503, detail=f"Сервер генерации недоступен: {e}")
+            raise HTTPException(status_code=503, detail=f"Старый сервер генерации недоступен: {e}")
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=500, detail=f"Ошибка получения расписания: {e.response.text}")
 
@@ -1357,16 +1902,16 @@ async def dispatcher_proxy(request: Request):
             response.raise_for_status()
             return HTMLResponse(content=response.text)
         except httpx.RequestError as e:
-            raise HTTPException(status_code=503, detail=f"Сервер генерации недоступен: {e}")
+            raise HTTPException(status_code=503, detail=f"Старый сервер генерации недоступен: {e}")
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=500, detail=f"Ошибка получения страницы: {e.response.text}")
 
-@app.get("/my-schedule", response_class=HTMLResponse)
-async def my_schedule(request: Request):
+@app.get("/my-schedule-old", response_class=HTMLResponse)
+async def my_schedule_old(request: Request):
     async with httpx.AsyncClient() as client:
         response = await client.get("http://localhost:8001/api/schedule")
         data = response.json()
-    html = "<h1>Расписание</h1>"
+    html = "<h1>Расписание (старое)</h1>"
     if not data:
         html += "<p>Расписание пусто. Сначала сгенерируйте его.</p>"
     else:
@@ -1376,3 +1921,21 @@ async def my_schedule(request: Request):
         html += " ame"
     html += "<p><a href='/'>На главную</a></p>"
     return HTMLResponse(content=html)
+
+@app.get("/generate-schedule")
+async def generate_schedule():
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post("http://localhost:8001/api/generate", timeout=30.0)
+            print(f"Status: {response.status_code}, Body: {response.text}")
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"Ошибка: {e}")
+            raise HTTPException(status_code=503, detail=str(e))
+        
+@app.get("/generate-schedule-ui")
+async def generate_schedule_ui():
+    async with httpx.AsyncClient() as client:
+        response = await client.post("http://localhost:8001/api/generate", timeout=30.0)
+        return RedirectResponse(url="/", status_code=303)

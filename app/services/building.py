@@ -3,17 +3,9 @@ from sqlalchemy import select, update, delete
 from app.models.reference import Building
 from app.schemas.building import BuildingCreate, BuildingUpdate
 from typing import List
-from sqlalchemy import select, update, delete
-from app.models.reference import Building
-from app.schemas.building import BuildingCreate, BuildingUpdate
 
-# ... функции
-async def bulk_delete_buildings(db: AsyncSession, ids: List[int]) -> None:
-    await db.execute(delete(Building).where(Building.id.in_(ids)))
-    await db.commit()
-    
 async def get_all_buildings(db: AsyncSession):
-    result = await db.execute(select(Building))
+    result = await db.execute(select(Building).order_by(Building.id))
     return result.scalars().all()
 
 async def get_building(db: AsyncSession, building_id: int):
