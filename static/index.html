@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Тест Авторизации</title>
+    <style>
+        body { font-family: sans-serif; max-width: 500px; margin: 50px auto; line-height: 1.6; }
+        .card { border: 1px solid #ccc; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        input { display: block; width: 100%; margin: 10px 0; padding: 8px; }
+        button { cursor: pointer; padding: 10px 15px; margin-right: 5px; }
+        #status { font-weight: bold; margin-top: 10px; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h3>Вход в систему</h3>
+    <input type="text" id="username" placeholder="Логин (admin_test)">
+    <input type="password" id="password" placeholder="Пароль (password123)">
+    <button onclick="login()">Войти</button>
+    <button onclick="logout()">Выйти</button>
+</div>
+
+<div class="card">
+    <h3>Проверка прав</h3>
+    <button onclick="testRoute('/admin/panel')">Админ-панель</button>
+    <button onclick="testRoute('/schedule/create')">Создать расписание</button>
+    <div id="status"></div>
+</div>
+
+<script>
+    const API_URL = 'http://127.0.0.1:8000';
+
+    async function login() {
+        const formData = new FormData();
+        formData.append('username', document.getElementById('username').value);
+        formData.append('password', document.getElementById('password').value);
+
+        try {
+            const response = await fetch(`${API_URL}/login`, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+
+            if (response.ok) {
+                localStorage.setItem('token', data.access_token);
+                showStatus('Успешный вход!', 'success');
+            } else {
+                showStatus(data.detail || 'Ошибка входа', 'error');
+            }
+        } catch (e) {
+            showStatus('Сервер недоступен', 'error');
+        }
+    }
+
+    async function testRoute(endpoint) {
+        const token = localStorage.getItem('token');
+        if (!token) return showStatus('Сначала войдите в систему!', 'error');
+
+        try {
+            const response = await fetch(`${API_URL}${endpoint}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+                showStatus(`Доступ разрешен: ${data.message}`, 'success');
+            } else {
+                showStatus(`Ошибка ${response.status}: ${data.detail}`, 'error');
+            }
+        } catch (e) {
+            showStatus('Ошибка запроса', 'error');
+        }
+    }
+
+    function logout() {
+        localStorage.removeItem('token');
+        showStatus('Вы вышли из системы', '');
+    }
+
+    function showStatus(text, className) {
+        const el = document.getElementById('status');
+        el.innerText = text;
+        el.className = className;
+    }
+</script>
+</body>
+</html>
