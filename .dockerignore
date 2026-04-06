@@ -1,0 +1,5 @@
+my_project_env/
+__pycache__/
+.env
+.git/
+static/*.log
