@@ -1,117 +1,75 @@
 import random
 from datetime import date, timedelta
 from collections import defaultdict
-from sqlalchemy.orm import Session, selectinload
-from .models import ScheduleItem, Lesson, Audience, TemplateItem, TimeSlot, Subject, FinalScheduleItem
+from sqlalchemy.orm import Session, joinedload, selectinload
+from .models import ScheduleItem, ScheduleTemplate, Lesson, Subject, TimeSlot, Audience, TemplateItem
 from datetime import date, timedelta
+from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
+from sqlalchemy import and_
 
 def get_date_range(start_date: date, end_date: date):
     from datetime import timedelta
     return [start_date + timedelta(days=x) for x in range((end_date - start_date).days + 1)]
 
-def generate_schedule(db: Session, start_date: date, end_date: date):
-    # 1. Генерируем список дат
-    dates = get_date_range(start_date, end_date)
+def generate_schedule(db: Session, start_dt: datetime, end_dt: datetime):
+    print(f"🚀 Запуск генерации: {start_dt} -> {end_dt}")
     
-    # 2. Очищаем только НЕЗАКРЕПЛЕННЫЕ записи за выбранный период
-    db.query(ScheduleItem).filter(
-        ScheduleItem.date >= start_date,
-        ScheduleItem.date <= end_date,
-        ScheduleItem.is_pinned == False
-    ).delete()
-    db.commit()
+    # 1. Загружаем шаблоны (теперь они связаны напрямую с Subject)
+    # Убедись, что в модели TemplateItem поле теперь называется subject_id
+    all_templates = db.query(TemplateItem).all()
 
-    # 3. Загружаем ВСЕ закрепленные (шаблонные) записи, чтобы знать, что занято
-    pinned_items = db.query(ScheduleItem).filter(
-        ScheduleItem.date >= start_date,
-        ScheduleItem.date <= end_date,
-        ScheduleItem.is_pinned == True
-    ).options(selectinload(ScheduleItem.lesson)).all()
+    if not all_templates:
+        print("❌ ОШИБКА: Шаблоны не найдены в базе!")
+        return 0
 
-    # Трекер занятости: timeline[дата][ID слота]
-    timeline = defaultdict(lambda: defaultdict(lambda: {'rooms': set(), 'teachers': set(), 'groups': set()}))
+    created_count = 0
+    current_date = start_dt
 
-    # Заполняем трекер данными из шаблонов
-    pinned_lesson_ids = set()
-    for p in pinned_items:
-        pinned_lesson_ids.add(p.lesson_id)
-        state = timeline[p.date][p.time_slot_id]
-        state['rooms'].add(p.audience_id)
+    while current_date <= end_dt:
+        # ISO день недели: Пн=1, Вс=7
+        day_of_week = current_date.weekday() + 1
         
-        if p.lesson:
-            # Предполагаем, что связи называются teachers и groups
-            state['teachers'].update([t.id for t in p.lesson.teachers])
-            state['groups'].update([g.id for g in p.lesson.groups])
+        # Фильтруем шаблоны для текущего дня недели
+        daily_items = [ti for ti in all_templates if ti.day_of_week_id == day_of_week]
 
-    # 4. Загружаем уроки, которых нет в шаблонах (которые нужно распределить)
-    lessons_to_place = db.query(Lesson).filter(
-        ~Lesson.id.in_(pinned_lesson_ids)
-    ).options(
-        selectinload(Lesson.subject).selectinload(Subject.groups),
-        selectinload(Lesson.subject).selectinload(Subject.teachers)
-    ).all()
-
-    active_audiences = db.query(Audience).filter(Audience.is_active == True).all()
-    time_slots = db.query(TimeSlot).order_by(TimeSlot.slot_number).all()
-    
-    new_schedule = []
-
-    # Сортируем уроки (сначала те, где больше групп — лекции)
-    lessons_to_place.sort(key=lambda x: len(x.subject.groups) if x.subject else 0, reverse=True)
-
-    # 5. ГЛАВНЫЙ ЦИКЛ ПО ДАТАМ И УРОКАМ
-    for current_date in dates:
-        for lesson in lessons_to_place:
-            subject = lesson.subject
-            if not subject: continue
-            
-            group_ids = [g.id for g in subject.groups]
-            teacher_ids = [t.id for t in subject.teachers]
-            target_capacity = int(lesson.student_count or 0)
-            
-            placed = False
-            for slot in time_slots:
-                state = timeline[current_date][slot.id]
-                
-                # Проверка конфликтов
-                if any(g_id in state['groups'] for g_id in group_ids): continue
-                if any(t_id in state['teachers'] for t_id in teacher_ids): continue
-                
-                # Поиск аудитории
-                available_rooms = [
-                    a for a in active_audiences 
-                    if a.id not in state['rooms'] and a.capacity >= target_capacity
-                ]
-                
-                if not available_rooms: continue
-
-                selected_room = random.choice(available_rooms)
-
-                # Бронируем
-                state['rooms'].add(selected_room.id)
-                state['teachers'].update(teacher_ids)
-                state['groups'].update(group_ids)
-
-                # Добавляем в список на сохранение
-                new_item = ScheduleItem(
-                    lesson_id=lesson.id,
-                    time_slot_id=slot.id,
-                    audience_id=selected_room.id,
+        for ti in daily_items:
+            try:
+                # 2. СОЗДАЕМ НОВЫЙ УРОК (op_lessons)
+                # Теперь берем subject_id напрямую из шаблона!
+                new_lesson = Lesson(
+                    subject_id=ti.subject_id, 
                     date=current_date,
-                    is_pinned=False,
-                    status='scheduled'
+                    student_count=0  # Или дефолтное значение
                 )
-                new_schedule.append(new_item)
-                placed = True
-                break 
-            
-            if not placed:
-                print(f"Предупреждение: Не удалось поставить {subject.name} на {current_date}")
+                db.add(new_lesson)
+                
+                # Проталкиваем в базу, чтобы получить ID нового урока
+                db.flush() 
 
-    # 6. Сохранение
-    db.add_all(new_schedule)
+                # 3. СОЗДАЕМ ЗАПИСЬ В РАСПИСАНИИ (op_schedule_items)
+                new_item = ScheduleItem(
+                    date=current_date,
+                    lesson_id=new_lesson.id,  # Ссылка на свежесозданный урок
+                    time_slot_id=ti.time_slot_id,
+                    audience_id=ti.audience_id,
+                    status="scheduled",
+                    is_pinned=True
+                )
+                db.add(new_item)
+                created_count += 1
+                
+            except Exception as e:
+                print(f"⚠️ Ошибка при создании элемента для шаблона {ti.id}: {e}")
+                db.rollback()
+                continue
+
+        current_date += timedelta(days=1)
+
+    # Фиксируем все созданные уроки и расписание одним махом
     db.commit()
-    return {"status": "success", "added": len(new_schedule)}
+    print(f"✨ Успешно создано {created_count} занятий")
+    return created_count
 def apply_template_to_period(db: Session, sample_id: int, start_date: date, end_date: date):
     # 1. Получаем правила из шаблона
     template_rules = db.query(TemplateItem).filter(TemplateItem.name_of_sample_id == sample_id).all()

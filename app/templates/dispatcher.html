@@ -2,135 +2,158 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Панель диспетчера</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Диспетчер расписания | AI Assistant</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #f4f7f9; padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        .group-card { box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: none; border-radius: 10px; overflow: hidden; }
-        .group-header { background-color: #004d40; color: white; padding: 15px 20px; font-weight: bold; font-size: 1.2rem; }
-        .table { margin-bottom: 0; }
-        .table th { background: #f8f9fa; text-transform: uppercase; font-size: 12px; color: #6c757d; }
-        .table td { vertical-align: middle; }
+        body { background-color: #f4f7f6; }
+        .table-container { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .group-header { background-color: #e9ecef !important; font-weight: bold; }
+        .badge-auto { background-color: #0dcaf0; color: white; }
+        .badge-pinned { background-color: #198754; color: white; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h2 class="m-0 text-dark">Расписание занятий</h2>
-            <button class="btn btn-primary px-4 py-2 fw-bold shadow-sm" onclick="generateNew()">
-                Авто-генерация на неделю
-            </button>
+
+<div class="container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-0">Управление расписанием</h1>
+            <p class="text-muted">Просмотр и генерация учебных планов</p>
         </div>
-
-        {% for group_name, items in grouped_schedules.items() %}
-        <div class="card mb-5 group-card">
-            <div class="group-header">
-                Группа {{ group_name }}
-            </div>
-            <div class="card-body p-0 table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th style="width: 15%;">Дата</th>
-                            <th style="width: 15%;">Пара</th>
-                            <th style="width: 30%;">Предмет</th>
-                            <th style="width: 20%;">Преподаватель</th>
-                            <th style="width: 20%;">Аудитория</th>
-                        </tr>
-                    </thead>
-                      <tbody>
-    {% for group_name, items in grouped_schedules.items() %}
-        {% for item in items %}
-            <tr>
-                <td>{{ item.date }}</td> <td>{{ item.time_slot.slot_number }}</td>
-                <td>{{ item.lesson.subject.name if item.lesson and item.lesson.subject else "---" }}</td>
-                </tr>
-        {% endfor %} {% endfor %}
-</tbody>
-                  </table>
-               </div>
-           </div>
-        {% endfor %}
-
+        <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#generateModal">
+            ✨ Генерировать расписание
+        </button>
     </div>
-<div class="row mb-4">
-    <div class="col-md-4">
-        <input type="text" id="groupSearch" class="form-control" placeholder="🔍 Найти группу (например, 130Б)..." onkeyup="filterGroups()">
+
+    <div class="table-container">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Дата</th>
+                        <th>Пара</th>
+                        <th>Предмет / Преподаватель</th>
+                        <th>Аудитория</th>
+                        <th>Тип</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if grouped_schedules %}
+                        {% for g_name, lessons_list in grouped_schedules.items() %}
+                            <tr class="group-header">
+                                <td colspan="5">📦 Группа: {{ g_name }}</td>
+                            </tr>
+                            
+                            {% for row in lessons_list %}
+                            <tr>
+                                <td class="fw-bold">{{ row.date }}</td>
+                                <td><span class="badge bg-light text-dark border">{{ row.time_slot.slot_number if row.time_slot else '?' }} пара</span></td>
+                                <td>
+                                    {% if row.lesson and row.lesson.subject %}
+                                        <div class="fw-semibold">{{ row.lesson.subject.name }}</div>
+                                        <small class="text-muted">Преподаватель: {{ row.lesson.teacher.name if row.lesson.teacher else 'Не назначен' }}</small>
+                                    {% else %}
+                                        <span class="text-danger">Данные урока отсутствуют</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <i class="bi bi-door-open"></i> {{ row.audience.room_number if row.audience else '—' }}
+                                </td>
+                                <td>
+                                    {% if row.is_pinned %}
+                                        <span class="badge badge-pinned text-uppercase" style="font-size: 0.7rem;">Закреплено</span>
+                                    {% else %}
+                                        <span class="badge badge-auto text-uppercase" style="font-size: 0.7rem;">ИИ-Генерация</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center py-5">
+                                <img src="https://cdn-icons-png.flaticon.com/512/4076/4076432.png" width="80" class="mb-3 opacity-50">
+                                <p class="text-muted">Расписание пусто. Нажмите кнопку выше, чтобы запустить генератор.</p>
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
-<tr>
-    <td>{{ item.date }}</td>
 
-</tr>
+<div class="modal fade" id="generateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">Параметры генерации</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info" style="font-size: 0.9rem;">
+                    Укажите период, на который нужно создать расписание. Система учтет все шаблоны и правила.
+                </div>
+                <form id="genForm">
+                    <div class="mb-3">
+                        <label for="startDate" class="form-label fw-semibold">Дата начала</label>
+                        <input type="text" id="startDate" class="form-control" placeholder="12.03.2026" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="endDate" class="form-label fw-semibold">Дата окончания</label>
+                        <input type="text" id="endDate" class="form-control" placeholder="26.03.2026" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" id="startGenBtn" class="btn btn-success px-4" onclick="sendGenerateRequest()">Запустить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
-function filterGroups() {
-    let input = document.getElementById('groupSearch').value.toUpperCase();
-    let cards = document.getElementsByClassName('group-card');
+async function sendGenerateRequest() {
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+    const btn = document.getElementById('startGenBtn');
 
-    for (let i = 0; i < cards.length; i++) {
-        // Ищем текст внутри заголовка карточки (там название группы)
-        let header = cards[i].getElementsByClassName('group-header')[0];
-        if (header) {
-            let txtValue = header.textContent || header.innerText;
-            if (txtValue.toUpperCase().indexOf(input) > -1) {
-                cards[i].style.display = "";
-            } else {
-                cards[i].style.display = "none";
-            }
+    if (!start || !end) {
+        alert('Пожалуйста, заполните обе даты');
+        return;
+    }
+
+    // Блокируем кнопку
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Обработка...';
+
+    try {
+        // Отправляем запрос на твой эндпоинт
+        const response = await fetch(`/api/generate?start_date=${start}&end_date=${end}`, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' }
+        });
+
+        if (response.ok) {
+            alert('✅ Расписание успешно сгенерировано!');
+            location.reload(); // Обновляем страницу для загрузки данных
+        } else {
+            const errorData = await response.json();
+            alert('❌ Ошибка: ' + (errorData.detail || 'Неизвестная ошибка сервера'));
         }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Критическая ошибка при связи с сервером');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = 'Запустить';
     }
 }
 </script>
-    <script>
-        async function generateNew() {
-            const btn = document.querySelector('.btn');
-            const originalText = btn.innerText;
-            btn.innerText = '⏳ Составляю расписание...';
-            btn.disabled = true;
-            
-            try {
-                const response = await fetch('/api/generate', { method: 'POST' });
-                if (response.ok) {
-                    window.location.reload();
-                } else {
-                    alert('Ошибка при генерации. Проверьте логи сервера.');
-                }
-            } catch (e) {
-                alert('Сетевая ошибка');
-            } finally {
-                btn.innerText = originalText;
-                btn.disabled = false;
-            }
-        }
-    </script>
-    <script>
-    async function generateNew() {
-    }
 
-    
-    async function togglePin(id, btn) {
-        try {
-            const res = await fetch(`/api/schedule/pin/${id}`, { method: 'POST' });
-            if (!res.ok) throw new Error('Ошибка сервера');
-            
-            const data = await res.json();
-            
-            if (data.is_pinned) {
-                // Если закрепили — меняем стиль на желтый (предупреждающий)
-                btn.classList.remove('btn-outline-secondary');
-                btn.classList.add('btn-warning');
-                btn.innerText = '📌 Закреплено';
-            } else {
-                // Если сняли закреп — возвращаем серый контур
-                btn.classList.remove('btn-warning');
-                btn.classList.add('btn-outline-secondary');
-                btn.innerText = '📍 Закрепить';
-            }
-        } catch (e) {
-            alert('Не удалось закрепить пару: ' + e.message);
-        }
-    }
-</script>
 </body>
 </html>

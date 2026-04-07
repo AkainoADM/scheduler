@@ -67,12 +67,9 @@ class Lesson(Base):
     # Отношение к Subject
     subject = relationship("Subject")
 
-# В models.py
-
-# app/models.py
 
 class ScheduleItem(Base):
-    __tablename__ = "op_schedule_items_1"
+    __tablename__ = "op_schedule_items"
     id: Mapped[int] = mapped_column(primary_key=True)
     lesson_id: Mapped[int] = mapped_column(ForeignKey('op_lessons.id'))
     time_slot_id: Mapped[int] = mapped_column(ForeignKey('ref_time_slots.id'))
@@ -100,23 +97,17 @@ class FinalScheduleItem(Base):
     audience = relationship("Audience")
 
     
-class TemplateName(Base):
-    __tablename__ = "op_name_of_sample"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String)
-    
-    items = relationship("TemplateItem", back_populates="sample")
-
 class TemplateItem(Base):
     __tablename__ = "op_templates"
     id: Mapped[int] = mapped_column(primary_key=True)
-    name_of_sample_id: Mapped[int] = mapped_column(ForeignKey('op_name_of_sample.id'))
-    day_of_week_id: Mapped[int] = mapped_column(ForeignKey('ref_days_of_the_week.id'))
-    time_slot_id: Mapped[int] = mapped_column(ForeignKey('ref_time_slots.id'))
-    lesson_id: Mapped[int] = mapped_column(ForeignKey('op_lessons.id'))
-    audience_id: Mapped[int] = mapped_column(ForeignKey('ref_audiences.id'))
+    name_of_sample_id: Mapped[int] = mapped_column(ForeignKey("op_name_of_sample.id")) # Связь с родителем
+    day_of_week_id: Mapped[int] = mapped_column(ForeignKey("ref_days_of_the_week.id"))
+    subject_id: Mapped[int] = mapped_column(ForeignKey("ref_subject.id")) # Теперь ведем сюда
+    time_slot_id: Mapped[int] = mapped_column(ForeignKey("ref_time_slots.id"))
+    audience_id: Mapped[int] = mapped_column(ForeignKey("ref_audiences.id"))
 
-    sample = relationship("TemplateName", back_populates="items")
-    lesson = relationship("Lesson")
-    time_slot = relationship("TimeSlot")
-    audience = relationship("Audience")
+# Для названия шаблона (родитель)
+class ScheduleTemplate(Base):
+    __tablename__ = "op_name_of_sample"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column()
