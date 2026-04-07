@@ -2,9 +2,12 @@ import os
 from datetime import date
 from typing import List
 from fastapi import APIRouter, Depends, Form, Request, BackgroundTasks, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+import io
 
 from app.core.database import get_db
 from app.services import (
@@ -46,9 +49,130 @@ from app.schemas.group_subject import GroupSubjectCreate
 
 router = APIRouter(prefix="/admin", tags=["Admin Pages"])
 
-# ---------- Вспомогательные функции для рендеринга ----------
+# ---------- Вспомогательные функции для проверки зависимостей ----------
+async def has_dependent_groups(db: AsyncSession, faculty_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.schemas.group import Group
+    result = await db.execute(select(func.count()).select_from(Group).where(Group.faculty_id == faculty_id))
+    return result.scalar() > 0
+
+async def has_dependent_audiences(db: AsyncSession, building_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.schemas.audience import Audience
+    result = await db.execute(select(func.count()).select_from(Audience).where(Audience.building_id == building_id))
+    return result.scalar() > 0
+
+async def has_dependent_audience_subjects(db: AsyncSession, audience_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.models.reference import op_audience_subject
+    result = await db.execute(select(func.count()).select_from(op_audience_subject).where(op_audience_subject.c.audience_id == audience_id))
+    return result.scalar() > 0
+
+async def has_dependent_teacher_groups(db: AsyncSession, teacher_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.models.reference import op_teachers_of_groups
+    result = await db.execute(select(func.count()).select_from(op_teachers_of_groups).where(op_teachers_of_groups.c.teacher_id == teacher_id))
+    return result.scalar() > 0
+
+async def has_dependent_teacher_subjects(db: AsyncSession, teacher_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.models.reference import op_teachers_of_pairs
+    result = await db.execute(select(func.count()).select_from(op_teachers_of_pairs).where(op_teachers_of_pairs.c.teacher_id == teacher_id))
+    return result.scalar() > 0
+
+async def has_dependent_group_teachers(db: AsyncSession, group_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.models.reference import op_teachers_of_groups
+    result = await db.execute(select(func.count()).select_from(op_teachers_of_groups).where(op_teachers_of_groups.c.group_id == group_id))
+    return result.scalar() > 0
+
+async def has_dependent_group_subjects(db: AsyncSession, group_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.models.reference import op_groups_of_pairs
+    result = await db.execute(select(func.count()).select_from(op_groups_of_pairs).where(op_groups_of_pairs.c.group_id == group_id))
+    return result.scalar() > 0
+
+async def has_dependent_subject_teachers(db: AsyncSession, subject_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.models.reference import op_teachers_of_pairs
+    result = await db.execute(select(func.count()).select_from(op_teachers_of_pairs).where(op_teachers_of_pairs.c.subject_id == subject_id))
+    return result.scalar() > 0
+
+async def has_dependent_subject_audiences(db: AsyncSession, subject_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.models.reference import op_audience_subject
+    result = await db.execute(select(func.count()).select_from(op_audience_subject).where(op_audience_subject.c.subject_id == subject_id))
+    return result.scalar() > 0
+
+async def has_dependent_subject_groups(db: AsyncSession, subject_id: int) -> bool:
+    from sqlalchemy import select, func
+    from app.models.reference import op_groups_of_pairs
+    result = await db.execute(select(func.count()).select_from(op_groups_of_pairs).where(op_groups_of_pairs.c.subject_id == subject_id))
+    return result.scalar() > 0
+
+# ---------- Общая функция экспорта в Excel ----------
+def export_to_excel(data: list, columns: list, sheet_name: str, filename: str):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+    for col, title in enumerate(columns, 1):
+        cell = ws.cell(row=1, column=col, value=title)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    for row_idx, row_data in enumerate(data, 2):
+        for col_idx, key in enumerate(columns, 1):
+            value = row_data.get(key)
+            ws.cell(row=row_idx, column=col_idx, value=value)
+
+    for col in ws.columns:
+        max_length = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 50)
+        ws.column_dimensions[col_letter].width = adjusted_width
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+# ---------- Вспомогательные функции для рендеринга (с кнопками экспорта) ----------
+def _common_styles():
+    return """
+    <style>
+        .btn-excel {
+            display: inline-block;
+            background: #28a745;
+            color: white;
+            padding: 6px 12px;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .btn-excel:hover { background: #218838; }
+        table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+    """
+
 def render_groups_html(groups, faculties):
-    html = "<h1>Группы</h1>"
+    html = f"<h1>Группы</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/groups' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/groups/add'>"
     html += "<input type='text' name='name' placeholder='Название группы' required>"
     html += "<select name='faculty_id' required><option value=''>Выберите факультет</option>"
@@ -81,10 +205,7 @@ def render_groups_html(groups, faculties):
         }
         function confirmDeleteSelected() {
             const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
-            if (!anyChecked) {
-                alert('Не выбрано ни одной записи');
-                return false;
-            }
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
             return confirm('Вы уверены, что хотите удалить выбранные записи?');
         }
     </script>
@@ -92,7 +213,8 @@ def render_groups_html(groups, faculties):
     return html
 
 def render_teachers_html(teachers):
-    html = "<h1>Преподаватели</h1>"
+    html = f"<h1>Преподаватели</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/teachers' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/teachers/add'>"
     html += "<input type='text' name='login' placeholder='Логин' required>"
     html += "<input type='text' name='name' placeholder='ФИО' required>"
@@ -124,10 +246,7 @@ def render_teachers_html(teachers):
         }
         function confirmDeleteSelected() {
             const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
-            if (!anyChecked) {
-                alert('Не выбрано ни одной записи');
-                return false;
-            }
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
             return confirm('Вы уверены, что хотите удалить выбранные записи?');
         }
     </script>
@@ -135,7 +254,8 @@ def render_teachers_html(teachers):
     return html
 
 def render_audiences_html(audiences, buildings):
-    html = "<h1>Аудитории</h1>"
+    html = f"<h1>Аудитории</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/audiences' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/audiences/add'>"
     html += "<input type='text' name='name' placeholder='Номер/название' required>"
     html += "<select name='building_id'><option value=''>Не выбрано</option>"
@@ -168,12 +288,18 @@ def render_audiences_html(audiences, buildings):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_buildings_html(buildings):
-    html = "<h1>Здания</h1>"
+    html = f"<h1>Здания</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/buildings' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/buildings/add'>"
     html += "<input type='text' name='name' placeholder='Название здания' required>"
     html += "<input type='text' name='address' placeholder='Адрес'>"
@@ -200,12 +326,18 @@ def render_buildings_html(buildings):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_calendar_html(entries):
-    html = "<h1>Календарь (учебные дни, праздники)</h1>"
+    html = f"<h1>Календарь (учебные дни, праздники)</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/calendar' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<h2>Добавить запись</h2>"
     html += "<form method='post' action='/admin/calendar/add'>"
     html += "<input type='date' name='date' required>"
@@ -213,13 +345,11 @@ def render_calendar_html(entries):
     html += "<input type='text' name='description' placeholder='Описание'>"
     html += "<button type='submit'>Добавить</button>"
     html += "</form>"
-
     html += "<h2>Синхронизация с официальным календарем</h2>"
     html += "<form method='post' action='/admin/calendar/sync'>"
     html += "<input type='number' name='year' placeholder='Год (например, 2025)' required>"
     html += "<button type='submit'>Загрузить данные за год</button>"
     html += "</form>"
-
     html += "<h2>Список записей</h2>"
     html += "<form method='post' action='/admin/calendar/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
@@ -244,12 +374,18 @@ def render_calendar_html(entries):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_faculties_html(faculties):
-    html = "<h1>Факультеты</h1>"
+    html = f"<h1>Факультеты</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/faculties' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/faculties/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllFaculties'> Выделить всё</label>"
@@ -281,12 +417,18 @@ def render_faculties_html(faculties):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_user_types_html(user_types):
-    html = "<h1>Типы пользователей</h1>"
+    html = f"<h1>Типы пользователей</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/user_types' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/user-types/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllUserTypes'> Выделить всё</label>"
@@ -316,12 +458,18 @@ def render_user_types_html(user_types):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_subdivisions_html(subdivisions):
-    html = "<h1>Подразделения</h1>"
+    html = f"<h1>Подразделения</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/subdivisions' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/subdivisions/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllSubdivisions'> Выделить всё</label>"
@@ -347,12 +495,18 @@ def render_subdivisions_html(subdivisions):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_roles_html(roles):
-    html = "<h1>Роли</h1>"
+    html = f"<h1>Роли</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/roles' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/roles/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllRoles'> Выделить всё</label>"
@@ -381,12 +535,18 @@ def render_roles_html(roles):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_permissions_html(permissions):
-    html = "<h1>Права</h1>"
+    html = f"<h1>Права</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/permissions' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/permissions/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllPermissions'> Выделить всё</label>"
@@ -416,12 +576,18 @@ def render_permissions_html(permissions):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_time_slots_html(time_slots):
-    html = "<h1>Временные слоты (пары)</h1>"
+    html = f"<h1>Временные слоты (пары)</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/time_slots' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/time-slots/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllTimeSlots'> Выделить всё</label>"
@@ -457,12 +623,18 @@ def render_time_slots_html(time_slots):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_subjects_html(subjects):
-    html = "<h1>Дисциплины</h1>"
+    html = f"<h1>Дисциплины</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/subjects' class='btn-excel'>📎 Экспорт в Excel</a></div>"
     html += "<form method='post' action='/admin/subjects/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllSubjects'> Выделить всё</label>"
@@ -488,27 +660,42 @@ def render_subjects_html(subjects):
                 checkboxes.forEach(cb => cb.checked = selectAll.checked);
             });
         }
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Вы уверены, что хотите удалить выбранные записи?');
+        }
     </script>
     """
     return html
 
 def render_teacher_groups_html(teacher_groups, teachers, groups):
-    html = "<h1>Связи преподавателей и групп</h1>"
+    html = f"<h1>Связи преподавателей и групп</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/teacher_groups' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    
+    # Форма добавления с чекбоксами
     html += "<form method='post' action='/admin/teacher-groups/add'>"
     html += "<div style='display: flex; gap: 20px;'>"
-    html += "<div><label>Преподаватели (Ctrl+клик для множественного выбора):</label><br>"
-    html += "<select name='teacher_ids' multiple size='6' style='min-width: 200px;'>"
+    
+    # Преподаватели (чекбоксы, прокрутка)
+    html += "<div><label>Преподаватели:</label><br>"
+    html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for t in teachers:
-        html += f"<option value='{t.id}'>{t.name}</option>"
-    html += "</select></div>"
-    html += "<div><label>Группы (Ctrl+клик для множественного выбора):</label><br>"
-    html += "<select name='group_ids' multiple size='6' style='min-width: 200px;'>"
+        html += f"<label><input type='checkbox' name='teacher_ids' value='{t.id}'> {t.name}</label><br>"
+    html += "</div></div>"
+    
+    # Группы (чекбоксы)
+    html += "<div><label>Группы:</label><br>"
+    html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for g in groups:
-        html += f"<option value='{g.id}'>{g.name}</option>"
-    html += "</select></div>"
+        html += f"<label><input type='checkbox' name='group_ids' value='{g.id}'> {g.name}</label><br>"
+    html += "</div></div>"
+    
     html += "</div>"
-    html += "<button type='submit'>Добавить выбранные комбинации</button>"
+    html += "<button type='submit' style='margin-top: 10px;'>Добавить выбранные комбинации</button>"
     html += "</form>"
+    
+    # Форма удаления (без изменений)
     html += "<form method='post' action='/admin/teacher-groups/bulk-delete' onsubmit='return confirmDeleteSelectedTG();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllTG'> Выделить всё</label>"
@@ -536,23 +723,32 @@ def render_teacher_groups_html(teacher_groups, teachers, groups):
     return html
 
 def render_teacher_subjects_html(teacher_subjects, teachers, subjects):
-    html = "<h1>Связи преподавателей и предметов</h1>"
+    html = f"<h1>Связи преподавателей и предметов</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/teacher_subjects' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    
     html += "<form method='post' action='/admin/teacher-subjects/add'>"
-    html += "<div style='display: flex; gap: 20px; margin-bottom: 20px;'>"
-    html += "<div><label>Преподаватели (Ctrl+клик для множественного выбора):</label><br>"
-    html += "<select name='teacher_ids' multiple size='6' style='min-width: 200px;'>"
+    html += "<div style='display: flex; gap: 20px; margin-bottom: 10px;'>"
+    
+    # Преподаватели (чекбоксы)
+    html += "<div><label>Преподаватели:</label><br>"
+    html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for t in teachers:
-        html += f"<option value='{t.id}'>{t.name}</option>"
-    html += "</select></div>"
-    html += "<div><label>Предметы (Ctrl+клик для множественного выбора):</label><br>"
-    html += "<select name='subject_ids' multiple size='6' style='min-width: 200px;'>"
+        html += f"<label><input type='checkbox' name='teacher_ids' value='{t.id}'> {t.name}</label><br>"
+    html += "</div></div>"
+    
+    # Предметы (чекбоксы)
+    html += "<div><label>Предметы:</label><br>"
+    html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for s in subjects:
-        html += f"<option value='{s.id}'>{s.name}</option>"
-    html += "</select></div>"
+        html += f"<label><input type='checkbox' name='subject_ids' value='{s.id}'> {s.name}</label><br>"
+    html += "</div></div>"
     html += "</div>"
+    
     html += "<label><input type='checkbox' name='is_main' value='true'> Основной преподаватель (для всех выбранных комбинаций)</label><br>"
     html += "<button type='submit'>Добавить выбранные комбинации</button>"
     html += "</form>"
+    
+    # Форма удаления
     html += "<form method='post' action='/admin/teacher-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedTS();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllTS'> Выделить всё</label>"
@@ -581,22 +777,31 @@ def render_teacher_subjects_html(teacher_subjects, teachers, subjects):
     return html
 
 def render_audience_subjects_html(audience_subjects, audiences, subjects):
-    html = "<h1>Связи аудиторий и предметов</h1>"
+    html = f"<h1>Связи аудиторий и предметов</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/audience_subjects' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    
     html += "<form method='post' action='/admin/audience-subjects/add'>"
-    html += "<div style='display: flex; gap: 20px; margin-bottom: 20px;'>"
-    html += "<div><label>Аудитории (Ctrl+клик для множественного выбора):</label><br>"
-    html += "<select name='audience_ids' multiple size='6' style='min-width: 200px;'>"
+    html += "<div style='display: flex; gap: 20px; margin-bottom: 10px;'>"
+    
+    # Аудитории (чекбоксы)
+    html += "<div><label>Аудитории:</label><br>"
+    html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for a in audiences:
-        html += f"<option value='{a.id}'>{a.name}</option>"
-    html += "</select></div>"
-    html += "<div><label>Предметы (Ctrl+клик для множественного выбора):</label><br>"
-    html += "<select name='subject_ids' multiple size='6' style='min-width: 200px;'>"
+        html += f"<label><input type='checkbox' name='audience_ids' value='{a.id}'> {a.name}</label><br>"
+    html += "</div></div>"
+    
+    # Предметы (чекбоксы)
+    html += "<div><label>Предметы:</label><br>"
+    html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for s in subjects:
-        html += f"<option value='{s.id}'>{s.name}</option>"
-    html += "</select></div>"
+        html += f"<label><input type='checkbox' name='subject_ids' value='{s.id}'> {s.name}</label><br>"
+    html += "</div></div>"
     html += "</div>"
+    
     html += "<button type='submit'>Добавить выбранные комбинации</button>"
     html += "</form>"
+    
+    # Форма удаления
     html += "<form method='post' action='/admin/audience-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedAS();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllAS'> Выделить всё</label>"
@@ -624,22 +829,31 @@ def render_audience_subjects_html(audience_subjects, audiences, subjects):
     return html
 
 def render_group_subjects_html(group_subjects, groups, subjects):
-    html = "<h1>Связи групп и предметов</h1>"
+    html = f"<h1>Связи групп и предметов</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/group_subjects' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    
     html += "<form method='post' action='/admin/group-subjects/add'>"
-    html += "<div style='display: flex; gap: 20px; margin-bottom: 20px;'>"
-    html += "<div><label>Группы (Ctrl+клик для множественного выбора):</label><br>"
-    html += "<select name='group_ids' multiple size='6' style='min-width: 200px;'>"
+    html += "<div style='display: flex; gap: 20px; margin-bottom: 10px;'>"
+    
+    # Группы (чекбоксы)
+    html += "<div><label>Группы:</label><br>"
+    html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for g in groups:
-        html += f"<option value='{g.id}'>{g.name}</option>"
-    html += "</select></div>"
-    html += "<div><label>Предметы (Ctrl+клик для множественного выбора):</label><br>"
-    html += "<select name='subject_ids' multiple size='6' style='min-width: 200px;'>"
+        html += f"<label><input type='checkbox' name='group_ids' value='{g.id}'> {g.name}</label><br>"
+    html += "</div></div>"
+    
+    # Предметы (чекбоксы)
+    html += "<div><label>Предметы:</label><br>"
+    html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for s in subjects:
-        html += f"<option value='{s.id}'>{s.name}</option>"
-    html += "</select></div>"
+        html += f"<label><input type='checkbox' name='subject_ids' value='{s.id}'> {s.name}</label><br>"
+    html += "</div></div>"
     html += "</div>"
+    
     html += "<button type='submit'>Добавить выбранные комбинации</button>"
     html += "</form>"
+    
+    # Форма удаления
     html += "<form method='post' action='/admin/group-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedGS();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllGS'> Выделить всё</label>"
@@ -669,7 +883,8 @@ def render_group_subjects_html(group_subjects, groups, subjects):
 # ---------- Маршруты для админки ----------
 @router.get("/", response_class=HTMLResponse)
 async def admin_home():
-    return HTMLResponse(content="""
+    return HTMLResponse(content=f"""
+    {_common_styles()}
     <h1>Административная панель</h1>
     <ul>
         <li><a href='/admin/groups'>Группы</a></li>
@@ -688,11 +903,12 @@ async def admin_home():
         <li><a href='/admin/teacher-subjects'>Связи: преподаватели-предметы</a></li>
         <li><a href='/admin/audience-subjects'>Связи: аудитории-предметы</a></li>
         <li><a href='/admin/group-subjects'>Связи: группы-предметы</a></li>
+        <li><a href='/admin/stats'>Статистика</a></li>
     </ul>
     <a href='/'>На главную API</a>
     """)
 
-# ----- Группы -----
+# ----- ГРУППЫ -----
 @router.get("/groups", response_class=HTMLResponse)
 async def groups_page(db: AsyncSession = Depends(get_db)):
     groups = await group_service.get_all_groups(db)
@@ -700,12 +916,7 @@ async def groups_page(db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=render_groups_html(groups, faculties))
 
 @router.post("/groups/add", response_model=None)
-async def add_group(
-    name: str = Form(...),
-    faculty_id: int = Form(...),
-    student_count: int = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_group(name: str = Form(...), faculty_id: int = Form(...), student_count: int = Form(None), db: AsyncSession = Depends(get_db)):
     data = GroupCreate(name=name, faculty_id=faculty_id, student_count=student_count)
     await group_service.create_group(db, data)
     return RedirectResponse(url="/admin/groups", status_code=303)
@@ -731,13 +942,7 @@ async def edit_group_form(group_id: int, db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=html)
 
 @router.post("/groups/edit/{group_id}", response_model=None)
-async def edit_group(
-    group_id: int,
-    name: str = Form(...),
-    faculty_id: int = Form(...),
-    student_count: int = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_group(group_id: int, name: str = Form(...), faculty_id: int = Form(...), student_count: int = Form(None), db: AsyncSession = Depends(get_db)):
     data = GroupUpdate(name=name, faculty_id=faculty_id, student_count=student_count)
     await group_service.update_group(db, group_id, data)
     return RedirectResponse(url="/admin/groups", status_code=303)
@@ -766,19 +971,14 @@ async def bulk_delete_groups(ids: List[int] = Form(...), db: AsyncSession = Depe
     await group_service.bulk_delete_groups(db, ids)
     return RedirectResponse(url="/admin/groups", status_code=303)
 
-# ----- Преподаватели -----
+# ----- ПРЕПОДАВАТЕЛИ -----
 @router.get("/teachers", response_class=HTMLResponse)
 async def teachers_page(db: AsyncSession = Depends(get_db)):
     teachers = await teacher_service.get_all_teachers(db)
     return HTMLResponse(content=render_teachers_html(teachers))
 
 @router.post("/teachers/add", response_model=None)
-async def add_teacher(
-    login: str = Form(...),
-    name: str = Form(...),
-    url: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_teacher(login: str = Form(...), name: str = Form(...), url: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = TeacherCreate(login=login, name=name, url=url)
     await teacher_service.create_teacher(db, data)
     return RedirectResponse(url="/admin/teachers", status_code=303)
@@ -801,13 +1001,7 @@ async def edit_teacher_form(teacher_id: int, db: AsyncSession = Depends(get_db))
     return HTMLResponse(content=html)
 
 @router.post("/teachers/edit/{teacher_id}", response_model=None)
-async def edit_teacher(
-    teacher_id: int,
-    login: str = Form(...),
-    name: str = Form(...),
-    url: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_teacher(teacher_id: int, login: str = Form(...), name: str = Form(...), url: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = TeacherUpdate(login=login, name=name, url=url)
     await teacher_service.update_teacher(db, teacher_id, data)
     return RedirectResponse(url="/admin/teachers", status_code=303)
@@ -826,17 +1020,44 @@ async def confirm_delete_teacher(teacher_id: int, db: AsyncSession = Depends(get
     """
     return HTMLResponse(content=html)
 
-@router.post("/teachers/delete/{teacher_id}", response_model=None)
-async def delete_teacher(teacher_id: int, db: AsyncSession = Depends(get_db)):
-    await teacher_service.delete_teacher(db, teacher_id)
-    return RedirectResponse(url="/admin/teachers", status_code=303)
+@router.get("/teachers/delete/{teacher_id}", response_class=HTMLResponse)
+async def confirm_delete_teacher(teacher_id: int, db: AsyncSession = Depends(get_db)):
+    teacher = await teacher_service.get_teacher(db, teacher_id)
+    if not teacher:
+        return HTMLResponse("Преподаватель не найден", status_code=404)
+    if await has_dependent_teacher_groups(db, teacher_id) or await has_dependent_teacher_subjects(db, teacher_id):
+        html = f"""
+        <h1>Ошибка удаления преподавателя "{teacher.name}"</h1>
+        <p>Невозможно удалить преподавателя, так как он связан с группами или предметами. Сначала удалите эти связи.</p>
+        <a href="/admin/teachers">Вернуться к списку преподавателей</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
+    html = f"""
+    <h1>Удалить преподавателя "{teacher.name}"?</h1>
+    <form method="post" action="/admin/teachers/delete/{teacher_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/admin/teachers">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
 
 @router.post("/teachers/bulk-delete", response_model=None)
 async def bulk_delete_teachers(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
+    forbidden = []
+    for tid in ids:
+        if await has_dependent_teacher_groups(db, tid) or await has_dependent_teacher_subjects(db, tid):
+            forbidden.append(tid)
+    if forbidden:
+        html = f"""
+        <h1>Ошибка массового удаления</h1>
+        <p>Следующие преподаватели имеют связи с группами или предметами и не могут быть удалены: {forbidden}</p>
+        <a href="/admin/teachers">Вернуться к списку преподавателей</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     await teacher_service.bulk_delete_teachers(db, ids)
     return RedirectResponse(url="/admin/teachers", status_code=303)
 
-# ----- Аудитории -----
+# ----- АУДИТОРИИ -----
 @router.get("/audiences", response_class=HTMLResponse)
 async def audiences_page(db: AsyncSession = Depends(get_db)):
     audiences = await audience_service.get_all_audiences(db)
@@ -844,14 +1065,7 @@ async def audiences_page(db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=render_audiences_html(audiences, buildings))
 
 @router.post("/audiences/add", response_model=None)
-async def add_audience(
-    name: str = Form(...),
-    building_id: int = Form(None),
-    capacity: int = Form(None),
-    type: str = Form(None),
-    is_active: bool = Form(True),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_audience(name: str = Form(...), building_id: int = Form(None), capacity: int = Form(None), type: str = Form(None), is_active: bool = Form(True), db: AsyncSession = Depends(get_db)):
     data = AudienceCreate(name=name, building_id=building_id, capacity=capacity, type=type, is_active=is_active)
     await audience_service.create_audience(db, data)
     return RedirectResponse(url="/admin/audiences", status_code=303)
@@ -886,15 +1100,7 @@ async def edit_audience_form(audience_id: int, db: AsyncSession = Depends(get_db
     return HTMLResponse(content=html)
 
 @router.post("/audiences/edit/{audience_id}", response_model=None)
-async def edit_audience(
-    audience_id: int,
-    name: str = Form(...),
-    building_id: int = Form(None),
-    capacity: int = Form(None),
-    type: str = Form(None),
-    is_active: bool = Form(True),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_audience(audience_id: int, name: str = Form(...), building_id: int = Form(None), capacity: int = Form(None), type: str = Form(None), is_active: bool = Form(True), db: AsyncSession = Depends(get_db)):
     data = AudienceUpdate(name=name, building_id=building_id, capacity=capacity, type=type, is_active=is_active)
     await audience_service.update_audience(db, audience_id, data)
     return RedirectResponse(url="/admin/audiences", status_code=303)
@@ -923,18 +1129,14 @@ async def bulk_delete_audiences(ids: List[int] = Form(...), db: AsyncSession = D
     await audience_service.bulk_delete_audiences(db, ids)
     return RedirectResponse(url="/admin/audiences", status_code=303)
 
-# ----- Здания -----
+# ----- ЗДАНИЯ -----
 @router.get("/buildings", response_class=HTMLResponse)
 async def buildings_page(db: AsyncSession = Depends(get_db)):
     buildings = await building_service.get_all_buildings(db)
     return HTMLResponse(content=render_buildings_html(buildings))
 
 @router.post("/buildings/add", response_model=None)
-async def add_building(
-    name: str = Form(...),
-    address: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_building(name: str = Form(...), address: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = BuildingCreate(name=name, address=address)
     await building_service.create_building(db, data)
     return RedirectResponse(url="/admin/buildings", status_code=303)
@@ -956,12 +1158,7 @@ async def edit_building_form(building_id: int, db: AsyncSession = Depends(get_db
     return HTMLResponse(content=html)
 
 @router.post("/buildings/edit/{building_id}", response_model=None)
-async def edit_building(
-    building_id: int,
-    name: str = Form(...),
-    address: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_building(building_id: int, name: str = Form(...), address: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = BuildingUpdate(name=name, address=address)
     await building_service.update_building(db, building_id, data)
     return RedirectResponse(url="/admin/buildings", status_code=303)
@@ -990,28 +1187,20 @@ async def bulk_delete_buildings(ids: List[int] = Form(...), db: AsyncSession = D
     await building_service.bulk_delete_buildings(db, ids)
     return RedirectResponse(url="/admin/buildings", status_code=303)
 
-# ----- Календарь -----
+# ----- КАЛЕНДАРЬ -----
 @router.get("/calendar", response_class=HTMLResponse)
 async def calendar_page(db: AsyncSession = Depends(get_db)):
     entries = await calendar_service.get_all_calendar(db)
     return HTMLResponse(content=render_calendar_html(entries))
 
 @router.post("/calendar/add", response_model=None)
-async def add_calendar_entry(
-    date: date = Form(...),
-    is_working_day: bool = Form(True),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_calendar_entry(date: date = Form(...), is_working_day: bool = Form(True), description: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = CalendarCreate(date=date, is_working_day=is_working_day, description=description)
     await calendar_service.create_calendar_entry(db, data)
     return RedirectResponse(url="/admin/calendar", status_code=303)
 
 @router.post("/calendar/sync", response_model=None)
-async def sync_calendar_web(
-    year: int = Form(...),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
-):
+async def sync_calendar_web(year: int = Form(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     background_tasks.add_task(calendar_sync.sync_calendar_for_year, year)
     return RedirectResponse(url="/admin/calendar", status_code=303)
 
@@ -1036,13 +1225,7 @@ async def edit_calendar_form(entry_id: int, db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=html)
 
 @router.post("/calendar/edit/{entry_id}", response_model=None)
-async def edit_calendar_entry(
-    entry_id: int,
-    date: date = Form(...),
-    is_working_day: bool = Form(True),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_calendar_entry(entry_id: int, date: date = Form(...), is_working_day: bool = Form(True), description: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = CalendarUpdate(date=date, is_working_day=is_working_day, description=description)
     await calendar_service.update_calendar_entry(db, entry_id, data)
     return RedirectResponse(url="/admin/calendar", status_code=303)
@@ -1071,19 +1254,14 @@ async def bulk_delete_calendar(ids: List[int] = Form(...), db: AsyncSession = De
     await calendar_service.bulk_delete_calendar(db, ids)
     return RedirectResponse(url="/admin/calendar", status_code=303)
 
-# ----- Факультеты -----
+# ----- ФАКУЛЬТЕТЫ -----
 @router.get("/faculties", response_class=HTMLResponse)
 async def faculties_page(db: AsyncSession = Depends(get_db)):
     faculties = await faculty_service.get_all_faculties(db)
     return HTMLResponse(content=render_faculties_html(faculties))
 
 @router.post("/faculties/add", response_model=None)
-async def add_faculty(
-    name: str = Form(...),
-    display_name: str = Form(None),
-    short_display_name: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_faculty(name: str = Form(...), display_name: str = Form(None), short_display_name: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = FacultyCreate(name=name, display_name=display_name, short_display_name=short_display_name)
     await faculty_service.create_faculty(db, data)
     return RedirectResponse(url="/admin/faculties", status_code=303)
@@ -1106,13 +1284,7 @@ async def edit_faculty_form(faculty_id: int, db: AsyncSession = Depends(get_db))
     return HTMLResponse(content=html)
 
 @router.post("/faculties/edit/{faculty_id}", response_model=None)
-async def edit_faculty(
-    faculty_id: int,
-    name: str = Form(...),
-    display_name: str = Form(None),
-    short_display_name: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_faculty(faculty_id: int, name: str = Form(...), display_name: str = Form(None), short_display_name: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = FacultyUpdate(name=name, display_name=display_name, short_display_name=short_display_name)
     await faculty_service.update_faculty(db, faculty_id, data)
     return RedirectResponse(url="/admin/faculties", status_code=303)
@@ -1122,6 +1294,13 @@ async def confirm_delete_faculty(faculty_id: int, db: AsyncSession = Depends(get
     faculty = await faculty_service.get_faculty(db, faculty_id)
     if not faculty:
         return HTMLResponse("Факультет не найден", status_code=404)
+    if await has_dependent_groups(db, faculty_id):
+        html = f"""
+        <h1>Ошибка удаления факультета "{faculty.name}"</h1>
+        <p>Невозможно удалить факультет, так как к нему привязаны группы. Сначала удалите или переназначьте группы.</p>
+        <a href="/admin/faculties">Вернуться к списку факультетов</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     html = f"""
     <h1>Удалить факультет "{faculty.name}"?</h1>
     <form method="post" action="/admin/faculties/delete/{faculty_id}">
@@ -1138,22 +1317,29 @@ async def delete_faculty(faculty_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/faculties/bulk-delete", response_model=None)
 async def bulk_delete_faculties(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
+    # Проверка каждого факультета
+    forbidden = []
+    for fid in ids:
+        if await has_dependent_groups(db, fid):
+            forbidden.append(fid)
+    if forbidden:
+        html = f"""
+        <h1>Ошибка массового удаления</h1>
+        <p>Следующие факультеты имеют привязанные группы и не могут быть удалены: {forbidden}</p>
+        <a href="/admin/faculties">Вернуться к списку факультетов</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     await faculty_service.bulk_delete_faculties(db, ids)
     return RedirectResponse(url="/admin/faculties", status_code=303)
 
-# ----- Типы пользователей -----
+# ----- ТИПЫ ПОЛЬЗОВАТЕЛЕЙ -----
 @router.get("/user-types", response_class=HTMLResponse)
 async def user_types_page(db: AsyncSession = Depends(get_db)):
     user_types = await user_type_service.get_all_user_types(db)
     return HTMLResponse(content=render_user_types_html(user_types))
 
 @router.post("/user-types/add", response_model=None)
-async def add_user_type(
-    code: str = Form(...),
-    name: str = Form(...),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_user_type(code: str = Form(...), name: str = Form(...), description: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = UserTypeCreate(code=code, name=name, description=description)
     await user_type_service.create_user_type(db, data)
     return RedirectResponse(url="/admin/user-types", status_code=303)
@@ -1176,13 +1362,7 @@ async def edit_user_type_form(ut_id: int, db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=html)
 
 @router.post("/user-types/edit/{ut_id}", response_model=None)
-async def edit_user_type(
-    ut_id: int,
-    code: str = Form(...),
-    name: str = Form(...),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_user_type(ut_id: int, code: str = Form(...), name: str = Form(...), description: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = UserTypeUpdate(code=code, name=name, description=description)
     await user_type_service.update_user_type(db, ut_id, data)
     return RedirectResponse(url="/admin/user-types", status_code=303)
@@ -1211,17 +1391,14 @@ async def bulk_delete_user_types(ids: List[int] = Form(...), db: AsyncSession = 
     await user_type_service.bulk_delete_user_types(db, ids)
     return RedirectResponse(url="/admin/user-types", status_code=303)
 
-# ----- Подразделения -----
+# ----- ПОДРАЗДЕЛЕНИЯ -----
 @router.get("/subdivisions", response_class=HTMLResponse)
 async def subdivisions_page(db: AsyncSession = Depends(get_db)):
     subdivisions = await subdivision_service.get_all_subdivisions(db)
     return HTMLResponse(content=render_subdivisions_html(subdivisions))
 
 @router.post("/subdivisions/add", response_model=None)
-async def add_subdivision(
-    name: str = Form(...),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_subdivision(name: str = Form(...), db: AsyncSession = Depends(get_db)):
     data = SubdivisionCreate(name=name)
     await subdivision_service.create_subdivision(db, data)
     return RedirectResponse(url="/admin/subdivisions", status_code=303)
@@ -1242,11 +1419,7 @@ async def edit_subdivision_form(sub_id: int, db: AsyncSession = Depends(get_db))
     return HTMLResponse(content=html)
 
 @router.post("/subdivisions/edit/{sub_id}", response_model=None)
-async def edit_subdivision(
-    sub_id: int,
-    name: str = Form(...),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_subdivision(sub_id: int, name: str = Form(...), db: AsyncSession = Depends(get_db)):
     data = SubdivisionUpdate(name=name)
     await subdivision_service.update_subdivision(db, sub_id, data)
     return RedirectResponse(url="/admin/subdivisions", status_code=303)
@@ -1275,18 +1448,14 @@ async def bulk_delete_subdivisions(ids: List[int] = Form(...), db: AsyncSession 
     await subdivision_service.bulk_delete_subdivisions(db, ids)
     return RedirectResponse(url="/admin/subdivisions", status_code=303)
 
-# ----- Роли -----
+# ----- РОЛИ -----
 @router.get("/roles", response_class=HTMLResponse)
 async def roles_page(db: AsyncSession = Depends(get_db)):
     roles = await role_service.get_all_roles(db)
     return HTMLResponse(content=render_roles_html(roles))
 
 @router.post("/roles/add", response_model=None)
-async def add_role(
-    role_name: str = Form(...),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_role(role_name: str = Form(...), description: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = RoleCreate(role_name=role_name, description=description)
     await role_service.create_role(db, data)
     return RedirectResponse(url="/admin/roles", status_code=303)
@@ -1308,12 +1477,7 @@ async def edit_role_form(role_id: int, db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=html)
 
 @router.post("/roles/edit/{role_id}", response_model=None)
-async def edit_role(
-    role_id: int,
-    role_name: str = Form(...),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_role(role_id: int, role_name: str = Form(...), description: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = RoleUpdate(role_name=role_name, description=description)
     await role_service.update_role(db, role_id, data)
     return RedirectResponse(url="/admin/roles", status_code=303)
@@ -1342,19 +1506,14 @@ async def bulk_delete_roles(ids: List[int] = Form(...), db: AsyncSession = Depen
     await role_service.bulk_delete_roles(db, ids)
     return RedirectResponse(url="/admin/roles", status_code=303)
 
-# ----- Права -----
+# ----- ПРАВА -----
 @router.get("/permissions", response_class=HTMLResponse)
 async def permissions_page(db: AsyncSession = Depends(get_db)):
     permissions = await permission_service.get_all_permissions(db)
     return HTMLResponse(content=render_permissions_html(permissions))
 
 @router.post("/permissions/add", response_model=None)
-async def add_permission(
-    permission_code: str = Form(...),
-    permission_name: str = Form(...),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_permission(permission_code: str = Form(...), permission_name: str = Form(...), description: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = PermissionCreate(permission_code=permission_code, permission_name=permission_name, description=description)
     await permission_service.create_permission(db, data)
     return RedirectResponse(url="/admin/permissions", status_code=303)
@@ -1377,13 +1536,7 @@ async def edit_permission_form(perm_id: int, db: AsyncSession = Depends(get_db))
     return HTMLResponse(content=html)
 
 @router.post("/permissions/edit/{perm_id}", response_model=None)
-async def edit_permission(
-    perm_id: int,
-    permission_code: str = Form(...),
-    permission_name: str = Form(...),
-    description: str = Form(None),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_permission(perm_id: int, permission_code: str = Form(...), permission_name: str = Form(...), description: str = Form(None), db: AsyncSession = Depends(get_db)):
     data = PermissionUpdate(permission_code=permission_code, permission_name=permission_name, description=description)
     await permission_service.update_permission(db, perm_id, data)
     return RedirectResponse(url="/admin/permissions", status_code=303)
@@ -1412,35 +1565,18 @@ async def bulk_delete_permissions(ids: List[int] = Form(...), db: AsyncSession =
     await permission_service.bulk_delete_permissions(db, ids)
     return RedirectResponse(url="/admin/permissions", status_code=303)
 
-# ----- Временные слоты -----
+# ----- ВРЕМЕННЫЕ СЛОТЫ -----
 @router.get("/time-slots", response_class=HTMLResponse)
 async def time_slots_page(db: AsyncSession = Depends(get_db)):
     time_slots = await time_slot_service.get_all_time_slots(db)
     return HTMLResponse(content=render_time_slots_html(time_slots))
 
 @router.post("/time-slots/add", response_model=None)
-async def add_time_slot(
-    slot_number: int = Form(...),
-    name: str = Form(...),
-    start_time: str = Form(...),
-    end_time: str = Form(...),
-    duration_minutes: int = Form(None),
-    break_after_minutes: int = Form(None),
-    is_active: bool = Form(True),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_time_slot(slot_number: int = Form(...), name: str = Form(...), start_time: str = Form(...), end_time: str = Form(...), duration_minutes: int = Form(None), break_after_minutes: int = Form(None), is_active: bool = Form(True), db: AsyncSession = Depends(get_db)):
     from datetime import time
     start = time.fromisoformat(start_time)
     end = time.fromisoformat(end_time)
-    data = TimeSlotCreate(
-        slot_number=slot_number,
-        name=name,
-        start_time=start,
-        end_time=end,
-        duration_minutes=duration_minutes,
-        break_after_minutes=break_after_minutes,
-        is_active=is_active
-    )
+    data = TimeSlotCreate(slot_number=slot_number, name=name, start_time=start, end_time=end, duration_minutes=duration_minutes, break_after_minutes=break_after_minutes, is_active=is_active)
     await time_slot_service.create_time_slot(db, data)
     return RedirectResponse(url="/admin/time-slots", status_code=303)
 
@@ -1466,29 +1602,11 @@ async def edit_time_slot_form(ts_id: int, db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=html)
 
 @router.post("/time-slots/edit/{ts_id}", response_model=None)
-async def edit_time_slot(
-    ts_id: int,
-    slot_number: int = Form(...),
-    name: str = Form(...),
-    start_time: str = Form(...),
-    end_time: str = Form(...),
-    duration_minutes: int = Form(None),
-    break_after_minutes: int = Form(None),
-    is_active: bool = Form(True),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_time_slot(ts_id: int, slot_number: int = Form(...), name: str = Form(...), start_time: str = Form(...), end_time: str = Form(...), duration_minutes: int = Form(None), break_after_minutes: int = Form(None), is_active: bool = Form(True), db: AsyncSession = Depends(get_db)):
     from datetime import time
     start = time.fromisoformat(start_time)
     end = time.fromisoformat(end_time)
-    data = TimeSlotUpdate(
-        slot_number=slot_number,
-        name=name,
-        start_time=start,
-        end_time=end,
-        duration_minutes=duration_minutes,
-        break_after_minutes=break_after_minutes,
-        is_active=is_active
-    )
+    data = TimeSlotUpdate(slot_number=slot_number, name=name, start_time=start, end_time=end, duration_minutes=duration_minutes, break_after_minutes=break_after_minutes, is_active=is_active)
     await time_slot_service.update_time_slot(db, ts_id, data)
     return RedirectResponse(url="/admin/time-slots", status_code=303)
 
@@ -1516,17 +1634,14 @@ async def bulk_delete_time_slots(ids: List[int] = Form(...), db: AsyncSession = 
     await time_slot_service.bulk_delete_time_slots(db, ids)
     return RedirectResponse(url="/admin/time-slots", status_code=303)
 
-# ----- Дисциплины -----
+# ----- ДИСЦИПЛИНЫ -----
 @router.get("/subjects", response_class=HTMLResponse)
 async def subjects_page(db: AsyncSession = Depends(get_db)):
     subjects = await subject_service.get_all_subjects(db)
     return HTMLResponse(content=render_subjects_html(subjects))
 
 @router.post("/subjects/add", response_model=None)
-async def add_subject(
-    name: str = Form(...),
-    db: AsyncSession = Depends(get_db)
-):
+async def add_subject(name: str = Form(...), db: AsyncSession = Depends(get_db)):
     data = SubjectCreate(name=name)
     await subject_service.create_subject(db, data)
     return RedirectResponse(url="/admin/subjects", status_code=303)
@@ -1547,11 +1662,7 @@ async def edit_subject_form(subject_id: int, db: AsyncSession = Depends(get_db))
     return HTMLResponse(content=html)
 
 @router.post("/subjects/edit/{subject_id}", response_model=None)
-async def edit_subject(
-    subject_id: int,
-    name: str = Form(...),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_subject(subject_id: int, name: str = Form(...), db: AsyncSession = Depends(get_db)):
     data = SubjectUpdate(name=name)
     await subject_service.update_subject(db, subject_id, data)
     return RedirectResponse(url="/admin/subjects", status_code=303)
@@ -1580,7 +1691,7 @@ async def bulk_delete_subjects(ids: List[int] = Form(...), db: AsyncSession = De
     await subject_service.bulk_delete_subjects(db, ids)
     return RedirectResponse(url="/admin/subjects", status_code=303)
 
-# ----- Связь преподаватель-группа -----
+# ----- СВЯЗЬ ПРЕПОДАВАТЕЛЬ-ГРУППА -----
 @router.get("/teacher-groups", response_class=HTMLResponse)
 async def teacher_groups_page(db: AsyncSession = Depends(get_db)):
     teachers = await teacher_service.get_all_teachers(db)
@@ -1589,20 +1700,10 @@ async def teacher_groups_page(db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=render_teacher_groups_html(teacher_groups, teachers, groups))
 
 @router.post("/teacher-groups/add", response_model=None)
-async def add_teacher_group(
-    teacher_ids: List[int] = Form(...),
-    group_ids: List[int] = Form(...),
-    db: AsyncSession = Depends(get_db)
-):
-    added = 0
-    skipped = 0
+async def add_teacher_group(teacher_ids: List[int] = Form(...), group_ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
     for t_id in teacher_ids:
         for g_id in group_ids:
-            result = await teacher_group_service.create_teacher_group(db, t_id, g_id)
-            if result:
-                added += 1
-            else:
-                skipped += 1
+            await teacher_group_service.create_teacher_group(db, t_id, g_id)
     return RedirectResponse(url="/admin/teacher-groups", status_code=303)
 
 @router.post("/teacher-groups/bulk-delete", response_model=None)
@@ -1631,7 +1732,7 @@ async def delete_teacher_group(teacher_id: int, group_id: int, db: AsyncSession 
     await teacher_group_service.delete_teacher_group(db, teacher_id, group_id)
     return RedirectResponse(url="/admin/teacher-groups", status_code=303)
 
-# ----- Связь преподаватель-предмет -----
+# ----- СВЯЗЬ ПРЕПОДАВАТЕЛЬ-ПРЕДМЕТ -----
 @router.get("/teacher-subjects", response_class=HTMLResponse)
 async def teacher_subjects_page(db: AsyncSession = Depends(get_db)):
     teachers = await teacher_service.get_all_teachers(db)
@@ -1640,21 +1741,10 @@ async def teacher_subjects_page(db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=render_teacher_subjects_html(teacher_subjects, teachers, subjects))
 
 @router.post("/teacher-subjects/add", response_model=None)
-async def add_teacher_subject(
-    teacher_ids: List[int] = Form(...),
-    subject_ids: List[int] = Form(...),
-    is_main: bool = Form(False),
-    db: AsyncSession = Depends(get_db)
-):
-    added = 0
-    skipped = 0
+async def add_teacher_subject(teacher_ids: List[int] = Form(...), subject_ids: List[int] = Form(...), is_main: bool = Form(False), db: AsyncSession = Depends(get_db)):
     for t_id in teacher_ids:
         for s_id in subject_ids:
-            result = await teacher_subject_service.create_teacher_subject(db, t_id, s_id, is_main)
-            if result:
-                added += 1
-            else:
-                skipped += 1
+            await teacher_subject_service.create_teacher_subject(db, t_id, s_id, is_main)
     return RedirectResponse(url="/admin/teacher-subjects", status_code=303)
 
 @router.post("/teacher-subjects/bulk-delete", response_model=None)
@@ -1671,12 +1761,7 @@ async def bulk_delete_teacher_subjects(ids: List[str] = Form(...), db: AsyncSess
 async def edit_teacher_subject_form(teacher_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select
     from app.models.reference import op_teachers_of_pairs
-    result = await db.execute(
-        select(op_teachers_of_pairs).where(
-            op_teachers_of_pairs.c.teacher_id == teacher_id,
-            op_teachers_of_pairs.c.subject_id == subject_id
-        )
-    )
+    result = await db.execute(select(op_teachers_of_pairs).where(op_teachers_of_pairs.c.teacher_id == teacher_id, op_teachers_of_pairs.c.subject_id == subject_id))
     ts = result.first()
     if not ts:
         return HTMLResponse("Связь не найдена", status_code=404)
@@ -1692,11 +1777,7 @@ async def edit_teacher_subject_form(teacher_id: int, subject_id: int, db: AsyncS
     return HTMLResponse(content=html)
 
 @router.post("/teacher-subjects/edit/{teacher_id}/{subject_id}", response_model=None)
-async def edit_teacher_subject(
-    teacher_id: int, subject_id: int,
-    is_main: bool = Form(False),
-    db: AsyncSession = Depends(get_db)
-):
+async def edit_teacher_subject(teacher_id: int, subject_id: int, is_main: bool = Form(False), db: AsyncSession = Depends(get_db)):
     await teacher_subject_service.update_teacher_subject(db, teacher_id, subject_id, is_main)
     return RedirectResponse(url="/admin/teacher-subjects", status_code=303)
 
@@ -1716,7 +1797,7 @@ async def delete_teacher_subject(teacher_id: int, subject_id: int, db: AsyncSess
     await teacher_subject_service.delete_teacher_subject(db, teacher_id, subject_id)
     return RedirectResponse(url="/admin/teacher-subjects", status_code=303)
 
-# ----- Связь аудитория-предмет -----
+# ----- СВЯЗЬ АУДИТОРИЯ-ПРЕДМЕТ -----
 @router.get("/audience-subjects", response_class=HTMLResponse)
 async def audience_subjects_page(db: AsyncSession = Depends(get_db)):
     audiences = await audience_service.get_all_audiences(db)
@@ -1725,20 +1806,10 @@ async def audience_subjects_page(db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=render_audience_subjects_html(audience_subjects, audiences, subjects))
 
 @router.post("/audience-subjects/add", response_model=None)
-async def add_audience_subject(
-    audience_ids: List[int] = Form(...),
-    subject_ids: List[int] = Form(...),
-    db: AsyncSession = Depends(get_db)
-):
-    added = 0
-    skipped = 0
+async def add_audience_subject(audience_ids: List[int] = Form(...), subject_ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
     for a_id in audience_ids:
         for s_id in subject_ids:
-            result = await audience_subject_service.create_audience_subject(db, a_id, s_id)
-            if result:
-                added += 1
-            else:
-                skipped += 1
+            await audience_subject_service.create_audience_subject(db, a_id, s_id)
     return RedirectResponse(url="/admin/audience-subjects", status_code=303)
 
 @router.post("/audience-subjects/bulk-delete", response_model=None)
@@ -1767,7 +1838,7 @@ async def delete_audience_subject(audience_id: int, subject_id: int, db: AsyncSe
     await audience_subject_service.delete_audience_subject(db, audience_id, subject_id)
     return RedirectResponse(url="/admin/audience-subjects", status_code=303)
 
-# ----- Связь группа-предмет -----
+# ----- СВЯЗЬ ГРУППА-ПРЕДМЕТ -----
 @router.get("/group-subjects", response_class=HTMLResponse)
 async def group_subjects_page(db: AsyncSession = Depends(get_db)):
     groups = await group_service.get_all_groups(db)
@@ -1776,20 +1847,10 @@ async def group_subjects_page(db: AsyncSession = Depends(get_db)):
     return HTMLResponse(content=render_group_subjects_html(group_subjects, groups, subjects))
 
 @router.post("/group-subjects/add", response_model=None)
-async def add_group_subject(
-    group_ids: List[int] = Form(...),
-    subject_ids: List[int] = Form(...),
-    db: AsyncSession = Depends(get_db)
-):
-    added = 0
-    skipped = 0
+async def add_group_subject(group_ids: List[int] = Form(...), subject_ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
     for g_id in group_ids:
         for s_id in subject_ids:
-            result = await group_subject_service.create_group_subject(db, g_id, s_id)
-            if result:
-                added += 1
-            else:
-                skipped += 1
+            await group_subject_service.create_group_subject(db, g_id, s_id)
     return RedirectResponse(url="/admin/group-subjects", status_code=303)
 
 @router.post("/group-subjects/bulk-delete", response_model=None)
@@ -1817,3 +1878,183 @@ async def confirm_delete_group_subject(group_id: int, subject_id: int, db: Async
 async def delete_group_subject(group_id: int, subject_id: int, db: AsyncSession = Depends(get_db)):
     await group_subject_service.delete_group_subject(db, group_id, subject_id)
     return RedirectResponse(url="/admin/group-subjects", status_code=303)
+
+# ---------- ЭКСПОРТ В EXCEL (все маршруты) ----------
+@router.get("/export/groups")
+async def export_groups(db: AsyncSession = Depends(get_db)):
+    groups = await group_service.get_all_groups(db)
+    faculties = await faculty_service.get_all_faculties(db)
+    fac_dict = {f.id: f.name for f in faculties}
+    data = [{"ID": g.id, "Название": g.name, "Факультет ID": g.faculty_id, "Факультет": fac_dict.get(g.faculty_id, ""), "Студентов": g.student_count} for g in groups]
+    return export_to_excel(data, ["ID", "Название", "Факультет ID", "Факультет", "Студентов"], "Группы", "groups.xlsx")
+
+@router.get("/export/teachers")
+async def export_teachers(db: AsyncSession = Depends(get_db)):
+    teachers = await teacher_service.get_all_teachers(db)
+    data = [{"ID": t.id, "Логин": t.login, "ФИО": t.name, "Ссылка": t.url or ""} for t in teachers]
+    return export_to_excel(data, ["ID", "Логин", "ФИО", "Ссылка"], "Преподаватели", "teachers.xlsx")
+
+@router.get("/export/audiences")
+async def export_audiences(db: AsyncSession = Depends(get_db)):
+    audiences = await audience_service.get_all_audiences(db)
+    buildings = await building_service.get_all_buildings(db)
+    b_dict = {b.id: b.name for b in buildings}
+    data = [{"ID": a.id, "Название": a.name, "Здание ID": a.building_id, "Здание": b_dict.get(a.building_id, ""), "Вместимость": a.capacity, "Тип": a.type or "", "Активна": "Да" if a.is_active else "Нет"} for a in audiences]
+    return export_to_excel(data, ["ID", "Название", "Здание ID", "Здание", "Вместимость", "Тип", "Активна"], "Аудитории", "audiences.xlsx")
+
+@router.get("/export/buildings")
+async def export_buildings(db: AsyncSession = Depends(get_db)):
+    buildings = await building_service.get_all_buildings(db)
+    data = [{"ID": b.id, "Название": b.name, "Адрес": b.address or ""} for b in buildings]
+    return export_to_excel(data, ["ID", "Название", "Адрес"], "Здания", "buildings.xlsx")
+
+@router.get("/export/calendar")
+async def export_calendar(db: AsyncSession = Depends(get_db)):
+    entries = await calendar_service.get_all_calendar(db)
+    data = [{"ID": e.id, "Дата": e.date, "Рабочий день": "Да" if e.is_working_day else "Нет", "Тип недели": e.week_type or "", "Описание": e.description or ""} for e in entries]
+    return export_to_excel(data, ["ID", "Дата", "Рабочий день", "Тип недели", "Описание"], "Календарь", "calendar.xlsx")
+
+@router.get("/export/faculties")
+async def export_faculties(db: AsyncSession = Depends(get_db)):
+    faculties = await faculty_service.get_all_faculties(db)
+    data = [{"ID": f.id, "Название": f.name, "Отображаемое имя": f.display_name or "", "Короткое имя": f.short_display_name or ""} for f in faculties]
+    return export_to_excel(data, ["ID", "Название", "Отображаемое имя", "Короткое имя"], "Факультеты", "faculties.xlsx")
+
+@router.get("/export/user_types")
+async def export_user_types(db: AsyncSession = Depends(get_db)):
+    types = await user_type_service.get_all_user_types(db)
+    data = [{"ID": t.id, "Код": t.code, "Название": t.name, "Описание": t.description or ""} for t in types]
+    return export_to_excel(data, ["ID", "Код", "Название", "Описание"], "Типы пользователей", "user_types.xlsx")
+
+@router.get("/export/subdivisions")
+async def export_subdivisions(db: AsyncSession = Depends(get_db)):
+    subs = await subdivision_service.get_all_subdivisions(db)
+    data = [{"ID": s.id, "Название": s.name} for s in subs]
+    return export_to_excel(data, ["ID", "Название"], "Подразделения", "subdivisions.xlsx")
+
+@router.get("/export/roles")
+async def export_roles(db: AsyncSession = Depends(get_db)):
+    roles = await role_service.get_all_roles(db)
+    data = [{"ID": r.id, "Название": r.role_name, "Описание": r.description or ""} for r in roles]
+    return export_to_excel(data, ["ID", "Название", "Описание"], "Роли", "roles.xlsx")
+
+@router.get("/export/permissions")
+async def export_permissions(db: AsyncSession = Depends(get_db)):
+    perms = await permission_service.get_all_permissions(db)
+    data = [{"ID": p.id, "Код": p.permission_code, "Название": p.permission_name, "Описание": p.description or ""} for p in perms]
+    return export_to_excel(data, ["ID", "Код", "Название", "Описание"], "Права", "permissions.xlsx")
+
+@router.get("/export/time_slots")
+async def export_time_slots(db: AsyncSession = Depends(get_db)):
+    slots = await time_slot_service.get_all_time_slots(db)
+    data = [{"ID": s.id, "Номер": s.slot_number, "Название": s.name, "Начало": str(s.start_time), "Конец": str(s.end_time), "Длительность(мин)": s.duration_minutes or "", "Перерыв(мин)": s.break_after_minutes or "", "Активен": "Да" if s.is_active else "Нет"} for s in slots]
+    return export_to_excel(data, ["ID", "Номер", "Название", "Начало", "Конец", "Длительность(мин)", "Перерыв(мин)", "Активен"], "Временные слоты", "time_slots.xlsx")
+
+@router.get("/export/subjects")
+async def export_subjects(db: AsyncSession = Depends(get_db)):
+    subjects = await subject_service.get_all_subjects(db)
+    data = [{"ID": s.id, "Название": s.name} for s in subjects]
+    return export_to_excel(data, ["ID", "Название"], "Дисциплины", "subjects.xlsx")
+
+@router.get("/export/teacher_groups")
+async def export_teacher_groups(db: AsyncSession = Depends(get_db)):
+    rels = await teacher_group_service.get_all_teacher_groups(db)
+    teachers = await teacher_service.get_all_teachers(db)
+    groups = await group_service.get_all_groups(db)
+    t_dict = {t.id: t.name for t in teachers}
+    g_dict = {g.id: g.name for g in groups}
+    data = [{"ID учителя": r['teacher_id'], "Учитель": t_dict.get(r['teacher_id'], ""), "ID группы": r['group_id'], "Группа": g_dict.get(r['group_id'], "")} for r in rels]
+    return export_to_excel(data, ["ID учителя", "Учитель", "ID группы", "Группа"], "Преподаватели-группы", "teacher_groups.xlsx")
+
+@router.get("/export/teacher_subjects")
+async def export_teacher_subjects(db: AsyncSession = Depends(get_db)):
+    rels = await teacher_subject_service.get_all_teacher_subjects(db)
+    teachers = await teacher_service.get_all_teachers(db)
+    subjects = await subject_service.get_all_subjects(db)
+    t_dict = {t.id: t.name for t in teachers}
+    s_dict = {s.id: s.name for s in subjects}
+    data = [{"ID учителя": r['teacher_id'], "Учитель": t_dict.get(r['teacher_id'], ""), "ID предмета": r['subject_id'], "Предмет": s_dict.get(r['subject_id'], ""), "Основной": "Да" if r['is_main'] else "Нет"} for r in rels]
+    return export_to_excel(data, ["ID учителя", "Учитель", "ID предмета", "Предмет", "Основной"], "Преподаватели-предметы", "teacher_subjects.xlsx")
+
+@router.get("/export/audience_subjects")
+async def export_audience_subjects(db: AsyncSession = Depends(get_db)):
+    rels = await audience_subject_service.get_all_audience_subjects(db)
+    audiences = await audience_service.get_all_audiences(db)
+    subjects = await subject_service.get_all_subjects(db)
+    a_dict = {a.id: a.name for a in audiences}
+    s_dict = {s.id: s.name for s in subjects}
+    data = [{"ID аудитории": r['audience_id'], "Аудитория": a_dict.get(r['audience_id'], ""), "ID предмета": r['subject_id'], "Предмет": s_dict.get(r['subject_id'], "")} for r in rels]
+    return export_to_excel(data, ["ID аудитории", "Аудитория", "ID предмета", "Предмет"], "Аудитории-предметы", "audience_subjects.xlsx")
+
+@router.get("/export/group_subjects")
+async def export_group_subjects(db: AsyncSession = Depends(get_db)):
+    rels = await group_subject_service.get_all_group_subjects(db)
+    groups = await group_service.get_all_groups(db)
+    subjects = await subject_service.get_all_subjects(db)
+    g_dict = {g.id: g.name for g in groups}
+    s_dict = {s.id: s.name for s in subjects}
+    data = [{"ID группы": r['group_id'], "Группа": g_dict.get(r['group_id'], ""), "ID предмета": r['subject_id'], "Предмет": s_dict.get(r['subject_id'], "")} for r in rels]
+    return export_to_excel(data, ["ID группы", "Группа", "ID предмета", "Предмет"], "Группы-предметы", "group_subjects.xlsx")
+
+# ---------- СТАТИСТИКА ----------
+@router.get("/stats", response_class=HTMLResponse)
+async def stats_page(db: AsyncSession = Depends(get_db)):
+    groups_count = len(await group_service.get_all_groups(db))
+    teachers_count = len(await teacher_service.get_all_teachers(db))
+    audiences_count = len(await audience_service.get_all_audiences(db))
+    buildings_count = len(await building_service.get_all_buildings(db))
+    calendar_count = len(await calendar_service.get_all_calendar(db))
+    faculties_count = len(await faculty_service.get_all_faculties(db))
+    user_types_count = len(await user_type_service.get_all_user_types(db))
+    subdivisions_count = len(await subdivision_service.get_all_subdivisions(db))
+    roles_count = len(await role_service.get_all_roles(db))
+    permissions_count = len(await permission_service.get_all_permissions(db))
+    time_slots_count = len(await time_slot_service.get_all_time_slots(db))
+    subjects_count = len(await subject_service.get_all_subjects(db))
+    teacher_groups_count = len(await teacher_group_service.get_all_teacher_groups(db))
+    teacher_subjects_count = len(await teacher_subject_service.get_all_teacher_subjects(db))
+    audience_subjects_count = len(await audience_subject_service.get_all_audience_subjects(db))
+    group_subjects_count = len(await group_subject_service.get_all_group_subjects(db))
+
+    html = f"""
+    <html>
+    <head><title>Статистика системы</title>
+    <style>
+        body {{ font-family: sans-serif; margin: 20px; }}
+        h1 {{ color: #2c3e50; }}
+        .stats-container {{ display: flex; flex-wrap: wrap; gap: 20px; }}
+        .card {{ background: #f8f9fa; border-radius: 8px; padding: 15px; width: 250px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        .card h3 {{ margin: 0 0 10px; color: #3498db; }}
+        .card .count {{ font-size: 32px; font-weight: bold; color: #2c3e50; }}
+        hr {{ margin: 20px 0; }}
+    </style>
+    </head>
+    <body>
+        <h1>Статистика системы</h1>
+        <div class='stats-container'>
+            <div class='card'><h3>Группы</h3><div class='count'>{groups_count}</div></div>
+            <div class='card'><h3>Преподаватели</h3><div class='count'>{teachers_count}</div></div>
+            <div class='card'><h3>Аудитории</h3><div class='count'>{audiences_count}</div></div>
+            <div class='card'><h3>Здания</h3><div class='count'>{buildings_count}</div></div>
+            <div class='card'><h3>Календарь</h3><div class='count'>{calendar_count}</div></div>
+            <div class='card'><h3>Факультеты</h3><div class='count'>{faculties_count}</div></div>
+            <div class='card'><h3>Типы пользователей</h3><div class='count'>{user_types_count}</div></div>
+            <div class='card'><h3>Подразделения</h3><div class='count'>{subdivisions_count}</div></div>
+            <div class='card'><h3>Роли</h3><div class='count'>{roles_count}</div></div>
+            <div class='card'><h3>Права</h3><div class='count'>{permissions_count}</div></div>
+            <div class='card'><h3>Временные слоты</h3><div class='count'>{time_slots_count}</div></div>
+            <div class='card'><h3>Дисциплины</h3><div class='count'>{subjects_count}</div></div>
+        </div>
+        <hr>
+        <h2>Связи</h2>
+        <div class='stats-container'>
+            <div class='card'><h3>Преподаватели ↔ Группы</h3><div class='count'>{teacher_groups_count}</div></div>
+            <div class='card'><h3>Преподаватели ↔ Предметы</h3><div class='count'>{teacher_subjects_count}</div></div>
+            <div class='card'><h3>Аудитории ↔ Предметы</h3><div class='count'>{audience_subjects_count}</div></div>
+            <div class='card'><h3>Группы ↔ Предметы</h3><div class='count'>{group_subjects_count}</div></div>
+        </div>
+        <br><a href='/admin/'>На главную админки</a>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
