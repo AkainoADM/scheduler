@@ -153,6 +153,20 @@ class ScheduleItem(Base):
     time_slot = relationship("TimeSlot")
     audience = relationship("Audience")
 
+class ScheduleItem(Base):
+    __tablename__ = "op_schedule_items"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lesson_id = Column(Integer, ForeignKey('op_lessons.id'))
+    time_slot_id = Column(Integer, ForeignKey('ref_time_slots.id'))
+    audience_id = Column(Integer, ForeignKey('ref_audiences.id'))
+    date = Column(Date)
+    status = Column(String, default='scheduled')
+    is_pinned = Column(Boolean, default=False)
+
+    lesson = relationship("Lesson")
+    time_slot = relationship("TimeSlot")
+    audience = relationship("Audience")
+
 class FinalScheduleItem(Base):
     __tablename__ = "op_final_schedule"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -164,16 +178,7 @@ class FinalScheduleItem(Base):
     lesson = relationship("Lesson")
     time_slot = relationship("TimeSlot")
     audience = relationship("Audience")
-
-class TemplateItem(Base):
-    __tablename__ = "op_templates"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name_of_sample_id = Column(Integer, ForeignKey('op_name_of_sample.id'))
-    day_of_week_id = Column(Integer, ForeignKey('ref_days_of_the_week.id'))
-    time_slot_id = Column(Integer, ForeignKey('ref_time_slots.id'))
-    lesson_id = Column(Integer, ForeignKey('op_lessons.id'))
-    audience_id = Column(Integer, ForeignKey('ref_audiences.id'))
-
+    
 class DayOfWeek(Base):
     __tablename__ = "ref_days_of_the_week"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -184,6 +189,20 @@ class TemplateName(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String)
 
+class Lesson(Base):
+    __tablename__ = "op_lessons"
+    __table_args__ = {'extend_existing': True}   # позволяет переопределить таблицу, если она уже существует
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    subject_id = Column(Integer, ForeignKey('ref_subject.id'))
+    date = Column(Date)
+    student_count = Column(Integer)
+    time_slot_id = Column(Integer, ForeignKey('ref_time_slots.id'), nullable=True)
+    week_day = Column(Integer)           # день недели (1-7)
+    text = Column(String)                # примечание
+    type = Column(String)                # тип занятия (лекция, практика и т.д.)
+
+    subject = relationship("Subject")
+    time_slot = relationship("TimeSlot")
 
 from sqlalchemy import Table, Column, Integer, Boolean, ForeignKey
 
@@ -222,3 +241,4 @@ op_groups_of_pairs = Table(
     Column('subject_id', Integer, ForeignKey('ref_subject.id'), primary_key=True),
     extend_existing=True
 )
+

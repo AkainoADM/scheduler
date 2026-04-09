@@ -1,13 +1,14 @@
 import os
-from datetime import date
+from datetime import date, datetime
 from typing import List
-from fastapi import APIRouter, Depends, Form, Request, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, Form, Request, BackgroundTasks, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from openpyxl import Workbook
+from sqlalchemy import select, delete
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 import io
+import httpx
 
 from app.core.database import get_db
 from app.services import (
@@ -47,65 +48,71 @@ from app.schemas.teacher_subject import TeacherSubjectCreate, TeacherSubjectUpda
 from app.schemas.audience_subject import AudienceSubjectCreate
 from app.schemas.group_subject import GroupSubjectCreate
 
+from app.services import user as user_service
+from app.schemas.user import UserCreate, UserUpdate
+
+from sqlalchemy.orm import selectinload
+from app.models.reference import ScheduleItem, FinalScheduleItem, Lesson, Subject, TimeSlot, Audience
+
 router = APIRouter(prefix="/admin", tags=["Admin Pages"])
 
 # ---------- Вспомогательные функции для проверки зависимостей ----------
 async def has_dependent_groups(db: AsyncSession, faculty_id: int) -> bool:
-    from sqlalchemy import select, func
-    from app.schemas.group import Group
+    from sqlalchemy import func
+    from app.models.reference import Group
     result = await db.execute(select(func.count()).select_from(Group).where(Group.faculty_id == faculty_id))
     return result.scalar() > 0
 
 async def has_dependent_audiences(db: AsyncSession, building_id: int) -> bool:
-    from sqlalchemy import select, func
-    from app.schemas.audience import Audience
+    from sqlalchemy import func
+    from app.models.reference import Audience
     result = await db.execute(select(func.count()).select_from(Audience).where(Audience.building_id == building_id))
     return result.scalar() > 0
 
 async def has_dependent_audience_subjects(db: AsyncSession, audience_id: int) -> bool:
-    from sqlalchemy import select, func
+    from sqlalchemy import func
     from app.models.reference import op_audience_subject
     result = await db.execute(select(func.count()).select_from(op_audience_subject).where(op_audience_subject.c.audience_id == audience_id))
     return result.scalar() > 0
 
 async def has_dependent_teacher_groups(db: AsyncSession, teacher_id: int) -> bool:
-    from sqlalchemy import select, func
+    from sqlalchemy import func
     from app.models.reference import op_teachers_of_groups
     result = await db.execute(select(func.count()).select_from(op_teachers_of_groups).where(op_teachers_of_groups.c.teacher_id == teacher_id))
     return result.scalar() > 0
 
 async def has_dependent_teacher_subjects(db: AsyncSession, teacher_id: int) -> bool:
-    from sqlalchemy import select, func
+    from sqlalchemy import func
     from app.models.reference import op_teachers_of_pairs
     result = await db.execute(select(func.count()).select_from(op_teachers_of_pairs).where(op_teachers_of_pairs.c.teacher_id == teacher_id))
     return result.scalar() > 0
 
 async def has_dependent_group_teachers(db: AsyncSession, group_id: int) -> bool:
-    from sqlalchemy import select, func
+    from sqlalchemy import func
     from app.models.reference import op_teachers_of_groups
     result = await db.execute(select(func.count()).select_from(op_teachers_of_groups).where(op_teachers_of_groups.c.group_id == group_id))
     return result.scalar() > 0
 
 async def has_dependent_group_subjects(db: AsyncSession, group_id: int) -> bool:
-    from sqlalchemy import select, func
+    from sqlalchemy import func
     from app.models.reference import op_groups_of_pairs
     result = await db.execute(select(func.count()).select_from(op_groups_of_pairs).where(op_groups_of_pairs.c.group_id == group_id))
     return result.scalar() > 0
 
 async def has_dependent_subject_teachers(db: AsyncSession, subject_id: int) -> bool:
-    from sqlalchemy import select, func
+    from sqlalchemy import func
     from app.models.reference import op_teachers_of_pairs
     result = await db.execute(select(func.count()).select_from(op_teachers_of_pairs).where(op_teachers_of_pairs.c.subject_id == subject_id))
     return result.scalar() > 0
 
 async def has_dependent_subject_audiences(db: AsyncSession, subject_id: int) -> bool:
-    from sqlalchemy import select, func
+    from sqlalchemy import func
     from app.models.reference import op_audience_subject
     result = await db.execute(select(func.count()).select_from(op_audience_subject).where(op_audience_subject.c.subject_id == subject_id))
     return result.scalar() > 0
 
 async def has_dependent_subject_groups(db: AsyncSession, subject_id: int) -> bool:
-    from sqlalchemy import select, func
+    from sqlalchemy import func
     from app.models.reference import op_groups_of_pairs
     result = await db.execute(select(func.count()).select_from(op_groups_of_pairs).where(op_groups_of_pairs.c.subject_id == subject_id))
     return result.scalar() > 0
@@ -150,7 +157,274 @@ def export_to_excel(data: list, columns: list, sheet_name: str, filename: str):
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
-# ---------- Вспомогательные функции для рендеринга (с кнопками экспорта) ----------
+# ---------- Вспомогательная функция для импорта через API ----------
+async def proxy_upload(entity: str, file: UploadFile, db: AsyncSession):
+    api_url = f"http://localhost:8000/api/v1/{entity}/upload"
+    contents = await file.read()
+    files = {"file": (file.filename, contents, file.content_type)}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(api_url, files=files)
+        response.raise_for_status()
+        return response.json()
+
+# Добавьте в app/routers/admin_views.py (после импортов, но до router)
+from app.models.reference import ScheduleItem, Lesson, Subject, TimeSlot, Audience, FinalScheduleItem
+
+@router.get("/schedule-editor", response_class=HTMLResponse)
+async def schedule_editor_page(db: AsyncSession = Depends(get_db)):
+    # Загружаем все черновики с необходимыми связями
+    items = await db.execute(
+        select(ScheduleItem)
+        .options(
+            selectinload(ScheduleItem.lesson).selectinload(Lesson.subject),
+            selectinload(ScheduleItem.time_slot),
+            selectinload(ScheduleItem.audience)
+        )
+        .order_by(ScheduleItem.date, ScheduleItem.time_slot_id)
+    )
+    items = items.scalars().all()
+
+    # Для выпадающих списков аудиторий и временных слотов
+    audiences = await audience_service.get_all_audiences(db)
+    time_slots = await time_slot_service.get_all_time_slots(db)
+
+    # Формируем данные для таблицы
+    rows = []
+    for item in items:
+        lesson = item.lesson
+        subject = lesson.subject if lesson else None
+        rows.append({
+            "id": item.id,
+            "date": item.date,
+            "subject": subject.name if subject else "—",
+            "time_slot": item.time_slot,
+            "audience": item.audience,
+            "lesson_id": lesson.id if lesson else None,
+        })
+
+    # Генерируем HTML
+    html = f"""
+    <html>
+    <head>
+        <title>Редактор черновика расписания</title>
+        {_common_styles()}
+        <style>
+            .edit-form {{ display: inline; margin-left: 10px; }}
+            select, input {{ padding: 4px; margin: 2px; }}
+            button {{ margin: 2px; }}
+        </style>
+    </head>
+    <body>
+        <h1>Черновик расписания</h1>
+        <div><a href="/admin/export/schedule_items" class="btn-excel">📎 Экспорт черновика в Excel</a></div>
+        <div style="margin-top: 20px;">
+            <form method="post" action="/admin/schedule/approve" onsubmit="return confirm('Утвердить расписание? Текущее опубликованное будет заменено.');">
+                <button type="submit" class="btn" style="background: #28a745;">✅ Утвердить расписание</button>
+            </form>
+        </div>
+        <table border="1" style="width:100%; margin-top:20px;">
+            <thead>
+                <tr><th>ID</th><th>Дата</th><th>Предмет</th><th>Время</th><th>Аудитория</th><th>Действия</th></tr>
+            </thead>
+            <tbody>
+    """
+    for row in rows:
+        # Строим выпадающие списки для аудиторий и времени
+        audience_options = ""
+        for a in audiences:
+            selected = "selected" if row["audience"] and a.id == row["audience"].id else ""
+            audience_options += f'<option value="{a.id}" {selected}>{a.name}</option>'
+        time_slot_options = ""
+        for ts in time_slots:
+            selected = "selected" if row["time_slot"] and ts.id == row["time_slot"].id else ""
+            time_slot_options += f'<option value="{ts.id}" {selected}>{ts.name} ({ts.start_time}-{ts.end_time})</option>'
+
+        html += f"""
+            <tr>
+                <td>{row["id"]}</td>
+                <td><input type="date" name="date_{row["id"]}" value="{row["date"]}" form="edit_{row["id"]}" style="width:120px;"></td>
+                <td>{row["subject"]}</td>
+                <td><select name="time_slot_id_{row["id"]}" form="edit_{row["id"]}">{time_slot_options}</select></td>
+                <td><select name="audience_id_{row["id"]}" form="edit_{row["id"]}">{audience_options}</select></td>
+                <td>
+                    <form id="edit_{row["id"]}" method="post" action="/admin/schedule/update/{row["id"]}" style="display:inline;">
+                        <button type="submit">Сохранить</button>
+                    </form>
+                    <a href="/admin/schedule/delete/{row["id"]}" onclick="return confirm('Удалить занятие из черновика?');">Удалить</a>
+                </td>
+            </tr>
+        """
+    html += """
+            </tbody>
+        </table>
+        <br><a href="/admin/">На главную админки</a>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+@router.post("/schedule/update/{item_id}", response_model=None)
+async def update_schedule_item(
+    item_id: int,
+    date: date = Form(...),
+    time_slot_id: int = Form(...),
+    audience_id: int = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    item = await db.get(ScheduleItem, item_id)
+    if item:
+        item.date = date
+        item.time_slot_id = time_slot_id
+        item.audience_id = audience_id
+        await db.commit()
+    return RedirectResponse(url="/admin/schedule-editor", status_code=303)
+
+@router.get("/schedule/delete/{item_id}", response_class=HTMLResponse)
+async def confirm_delete_schedule_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    item = await db.get(ScheduleItem, item_id)
+    if not item:
+        return HTMLResponse("Запись не найдена", status_code=404)
+    html = f"""
+    <h1>Удалить занятие из черновика?</h1>
+    <p>ID: {item.id}, Дата: {item.date}</p>
+    <form method="post" action="/admin/schedule/delete/{item_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/admin/schedule-editor">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@router.post("/schedule/delete/{item_id}", response_model=None)
+async def delete_schedule_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(ScheduleItem).where(ScheduleItem.id == item_id))
+    await db.commit()
+    return RedirectResponse(url="/admin/schedule-editor", status_code=303)
+
+@router.post("/schedule/approve", response_model=None)
+async def approve_schedule(db: AsyncSession = Depends(get_db)):
+    # Очищаем старую публикацию
+    await db.execute(delete(FinalScheduleItem))
+    # Копируем все черновики
+    drafts = await db.execute(select(ScheduleItem))
+    drafts = drafts.scalars().all()
+    for d in drafts:
+        final = FinalScheduleItem(
+            lesson_id=d.lesson_id,
+            time_slot_id=d.time_slot_id,
+            audience_id=d.audience_id,
+            date=d.date
+        )
+        db.add(final)
+    await db.commit()
+    return RedirectResponse(url="/admin/schedule-editor", status_code=303)
+
+@router.get("/export/schedule_items")
+async def export_schedule_items(db: AsyncSession = Depends(get_db)):
+    items = await db.execute(
+        select(ScheduleItem)
+        .options(
+            selectinload(ScheduleItem.lesson).selectinload(Lesson.subject),
+            selectinload(ScheduleItem.time_slot),
+            selectinload(ScheduleItem.audience)
+        )
+    )
+    items = items.scalars().all()
+    data = []
+    for item in items:
+        lesson = item.lesson
+        subject = lesson.subject if lesson else None
+        data.append({
+            "ID": item.id,
+            "Дата": item.date,
+            "Предмет": subject.name if subject else "—",
+            "Время": item.time_slot.name if item.time_slot else "—",
+            "Аудитория": item.audience.name if item.audience else "—",
+            "Закреплено": "Да" if item.is_pinned else "Нет"
+        })
+    columns = ["ID", "Дата", "Предмет", "Время", "Аудитория", "Закреплено"]
+    return export_to_excel(data, columns, "Черновик расписания", "schedule_items.xlsx")
+
+@router.get("/final-schedule", response_class=HTMLResponse)
+async def final_schedule_page(db: AsyncSession = Depends(get_db)):
+    items = await db.execute(
+        select(FinalScheduleItem)
+        .options(
+            selectinload(FinalScheduleItem.lesson).selectinload(Lesson.subject),
+            selectinload(FinalScheduleItem.time_slot),
+            selectinload(FinalScheduleItem.audience)
+        )
+        .order_by(FinalScheduleItem.date, FinalScheduleItem.time_slot_id)
+    )
+    items = items.scalars().all()
+    rows = []
+    for item in items:
+        lesson = item.lesson
+        subject = lesson.subject if lesson else None
+        rows.append({
+            "date": item.date,
+            "subject": subject.name if subject else "—",
+            "time_slot": item.time_slot.name if item.time_slot else "—",
+            "audience": item.audience.name if item.audience else "—",
+        })
+    html = f"""
+    <html>
+    <head><title>Опубликованное расписание</title>{_common_styles()}</head>
+    <body>
+        <h1>Опубликованное расписание</h1>
+        <div><a href="/admin/export/final_schedule" class="btn-excel">📎 Экспорт в Excel</a></div>
+        <table border="1" style="width:100%; margin-top:20px;">
+            <thead><tr><th>Дата</th><th>Предмет</th><th>Время</th><th>Аудитория</th></tr></thead>
+            <tbody>
+    """
+    for row in rows:
+        html += f"<tr><td>{row['date']}</td><td>{row['subject']}</td><td>{row['time_slot']}</td><td>{row['audience']}</td></tr>"
+    html += """
+            </tbody>
+        </table>
+        <br><a href="/admin/">На главную админки</a>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+@router.get("/export/final_schedule")
+async def export_final_schedule(db: AsyncSession = Depends(get_db)):
+    items = await db.execute(
+        select(FinalScheduleItem)
+        .options(
+            selectinload(FinalScheduleItem.lesson).selectinload(Lesson.subject),
+            selectinload(FinalScheduleItem.time_slot),
+            selectinload(FinalScheduleItem.audience)
+        )
+    )
+    items = items.scalars().all()
+    data = []
+    for item in items:
+        lesson = item.lesson
+        subject = lesson.subject if lesson else None
+        data.append({
+            "Дата": item.date,
+            "Предмет": subject.name if subject else "—",
+            "Время": item.time_slot.name if item.time_slot else "—",
+            "Аудитория": item.audience.name if item.audience else "—",
+        })
+    columns = ["Дата", "Предмет", "Время", "Аудитория"]
+    return export_to_excel(data, columns, "Опубликованное расписание", "final_schedule.xlsx")
+
+# ---------- Эндпоинт импорта ----------
+@router.post("/import/{entity}")
+async def import_entity(
+    entity: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        result = await proxy_upload(entity, file, db)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------- Вспомогательные функции для рендеринга (с кнопками экспорта и импорта) ----------
 def _common_styles():
     return """
     <style>
@@ -163,16 +437,51 @@ def _common_styles():
             border-radius: 4px;
             margin-bottom: 15px;
         }
-        .btn-excel:hover { background: #218838; }
+        .btn-import {
+            background: #007bff;
+            margin-left: 10px;
+        }
         table { border-collapse: collapse; width: 100%; margin-top: 10px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; }
+        .import-form { display: none; margin: 10px 0; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; }
     </style>
+    """
+
+def _import_script(entity: str):
+    return f"""
+    <script>
+        function toggleImportForm_{entity}() {{
+            var form = document.getElementById('importForm_{entity}');
+            if (form.style.display === 'none' || form.style.display === '') {{
+                form.style.display = 'block';
+            }} else {{
+                form.style.display = 'none';
+            }}
+        }}
+        document.getElementById('uploadForm_{entity}').onsubmit = async function(e) {{
+            e.preventDefault();
+            const formData = new FormData(this);
+            const response = await fetch('/admin/import/{entity}', {{ method: 'POST', body: formData }});
+            const result = await response.json();
+            alert(`Добавлено: ${{result.added}}, Обновлено: ${{result.updated}}\\nОшибки: ${{result.errors.length}}`);
+            window.location.reload();
+        }};
+    </script>
     """
 
 def render_groups_html(groups, faculties):
     html = f"<h1>Группы</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/groups' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/groups' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_groups()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_groups' class='import-form'>"
+    html += f"<form id='uploadForm_groups' action='/admin/import/groups' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_groups()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("groups")
+    # Форма добавления
     html += "<form method='post' action='/admin/groups/add'>"
     html += "<input type='text' name='name' placeholder='Название группы' required>"
     html += "<select name='faculty_id' required><option value=''>Выберите факультет</option>"
@@ -214,7 +523,15 @@ def render_groups_html(groups, faculties):
 
 def render_teachers_html(teachers):
     html = f"<h1>Преподаватели</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/teachers' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/teachers' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_teachers()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_teachers' class='import-form'>"
+    html += f"<form id='uploadForm_teachers' action='/admin/import/teachers' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_teachers()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("teachers")
     html += "<form method='post' action='/admin/teachers/add'>"
     html += "<input type='text' name='login' placeholder='Логин' required>"
     html += "<input type='text' name='name' placeholder='ФИО' required>"
@@ -255,7 +572,15 @@ def render_teachers_html(teachers):
 
 def render_audiences_html(audiences, buildings):
     html = f"<h1>Аудитории</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/audiences' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/audiences' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_audiences()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_audiences' class='import-form'>"
+    html += f"<form id='uploadForm_audiences' action='/admin/import/audiences' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_audiences()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("audiences")
     html += "<form method='post' action='/admin/audiences/add'>"
     html += "<input type='text' name='name' placeholder='Номер/название' required>"
     html += "<select name='building_id'><option value=''>Не выбрано</option>"
@@ -299,7 +624,15 @@ def render_audiences_html(audiences, buildings):
 
 def render_buildings_html(buildings):
     html = f"<h1>Здания</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/buildings' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/buildings' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_buildings()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_buildings' class='import-form'>"
+    html += f"<form id='uploadForm_buildings' action='/admin/import/buildings' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_buildings()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("buildings")
     html += "<form method='post' action='/admin/buildings/add'>"
     html += "<input type='text' name='name' placeholder='Название здания' required>"
     html += "<input type='text' name='address' placeholder='Адрес'>"
@@ -337,7 +670,15 @@ def render_buildings_html(buildings):
 
 def render_calendar_html(entries):
     html = f"<h1>Календарь (учебные дни, праздники)</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/calendar' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/calendar' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_calendar()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_calendar' class='import-form'>"
+    html += f"<form id='uploadForm_calendar' action='/admin/import/calendar' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_calendar()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("calendar")
     html += "<h2>Добавить запись</h2>"
     html += "<form method='post' action='/admin/calendar/add'>"
     html += "<input type='date' name='date' required>"
@@ -385,10 +726,25 @@ def render_calendar_html(entries):
 
 def render_faculties_html(faculties):
     html = f"<h1>Факультеты</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/faculties' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/faculties' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_faculties()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_faculties' class='import-form'>"
+    html += f"<form id='uploadForm_faculties' action='/admin/import/faculties' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_faculties()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("faculties")
     html += "<form method='post' action='/admin/faculties/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllFaculties'> Выделить всё</label>"
+    html += "</form>"
+    html += "<form method='post' action='/admin/faculties/add' style='margin-top: 20px;'>"
+    html += "<input type='text' name='name' placeholder='Название' required>"
+    html += "<input type='text' name='display_name' placeholder='Отображаемое имя'>"
+    html += "<input type='text' name='short_display_name' placeholder='Короткое имя'>"
+    html += "<button type='submit'>Добавить</button>"
+    html += "</form>"
     html += "<ul>"
     for f in faculties:
         html += f"<li><input type='checkbox' name='ids' value='{f.id}'> "
@@ -400,13 +756,6 @@ def render_faculties_html(faculties):
         html += f" <a href='/admin/faculties/edit/{f.id}'>Редактировать</a> "
         html += f"<a href='/admin/faculties/delete/{f.id}'>Удалить</a></li>"
     html += "</ul>"
-    html += "</form>"
-    html += "<form method='post' action='/admin/faculties/add' style='margin-top: 20px;'>"
-    html += "<input type='text' name='name' placeholder='Название' required>"
-    html += "<input type='text' name='display_name' placeholder='Отображаемое имя'>"
-    html += "<input type='text' name='short_display_name' placeholder='Короткое имя'>"
-    html += "<button type='submit'>Добавить</button>"
-    html += "</form>"
     html += "<a href='/admin/'>На главную админки</a>"
     html += """
     <script>
@@ -426,9 +775,69 @@ def render_faculties_html(faculties):
     """
     return html
 
+def render_users_html(users, user_types):
+    html = f"<h1>Пользователи</h1>{_common_styles()}"
+    html += "<div><a href='/admin/export/users' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_users()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_users' class='import-form'>"
+    html += f"<form id='uploadForm_users' action='/admin/import/users' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_users()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("users")
+    html += "<form method='post' action='/admin/users/add'>"
+    html += "<input type='text' name='username' placeholder='Логин' required>"
+    html += "<input type='email' name='email' placeholder='Email' required>"
+    html += "<input type='password' name='password' placeholder='Пароль' required>"
+    html += "<input type='text' name='full_name' placeholder='ФИО'>"
+    html += "<select name='user_type_id'><option value=''>Тип пользователя</option>"
+    for ut in user_types:
+        html += f"<option value='{ut.id}'>{ut.name}</option>"
+    html += "</select>"
+    html += "<label><input type='checkbox' name='is_active' value='true' checked> Активен</label>"
+    html += "<button type='submit'>Добавить</button>"
+    html += "</form>"
+    html += "<form method='post' action='/admin/users/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
+    html += "<button type='submit'>Удалить выбранные</button>"
+    html += "<label><input type='checkbox' id='selectAllUsers'> Выделить всё</label>"
+    html += "<ul>"
+    for u in users:
+        html += f"<li><input type='checkbox' name='ids' value='{u.id}'> "
+        html += f"{u.username} ({u.email}) – {u.full_name or '—'}"
+        if u.user_type:
+            html += f" [{u.user_type.name}]"
+        html += f" <a href='/admin/users/edit/{u.id}'>Редактировать</a> "
+        html += f"<a href='/admin/users/delete/{u.id}'>Удалить</a></li>"
+    html += "</ul>"
+    html += "</form>"
+    html += "<a href='/admin/'>На главную админки</a>"
+    html += """
+    <script>
+        const selectAll = document.getElementById('selectAllUsers');
+        if(selectAll) selectAll.addEventListener('change', function() {
+            document.querySelectorAll('input[name="ids"]').forEach(cb => cb.checked = selectAll.checked);
+        });
+        function confirmDeleteSelected() {
+            const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+            if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+            return confirm('Удалить выбранных пользователей?');
+        }
+    </script>
+    """
+    return html
+
 def render_user_types_html(user_types):
     html = f"<h1>Типы пользователей</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/user_types' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/user_types' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_user_types()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_user_types' class='import-form'>"
+    html += f"<form id='uploadForm_user_types' action='/admin/import/user_types' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_user_types()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("user_types")
     html += "<form method='post' action='/admin/user-types/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllUserTypes'> Выделить всё</label>"
@@ -469,7 +878,15 @@ def render_user_types_html(user_types):
 
 def render_subdivisions_html(subdivisions):
     html = f"<h1>Подразделения</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/subdivisions' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/subdivisions' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_subdivisions()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_subdivisions' class='import-form'>"
+    html += f"<form id='uploadForm_subdivisions' action='/admin/import/subdivisions' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_subdivisions()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("subdivisions")
     html += "<form method='post' action='/admin/subdivisions/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllSubdivisions'> Выделить всё</label>"
@@ -506,7 +923,15 @@ def render_subdivisions_html(subdivisions):
 
 def render_roles_html(roles):
     html = f"<h1>Роли</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/roles' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/roles' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_roles()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_roles' class='import-form'>"
+    html += f"<form id='uploadForm_roles' action='/admin/import/roles' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_roles()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("roles")
     html += "<form method='post' action='/admin/roles/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllRoles'> Выделить всё</label>"
@@ -546,7 +971,15 @@ def render_roles_html(roles):
 
 def render_permissions_html(permissions):
     html = f"<h1>Права</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/permissions' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/permissions' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_permissions()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_permissions' class='import-form'>"
+    html += f"<form id='uploadForm_permissions' action='/admin/import/permissions' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_permissions()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("permissions")
     html += "<form method='post' action='/admin/permissions/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllPermissions'> Выделить всё</label>"
@@ -587,21 +1020,18 @@ def render_permissions_html(permissions):
 
 def render_time_slots_html(time_slots):
     html = f"<h1>Временные слоты (пары)</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/time_slots' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/time_slots' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_time_slots()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_time_slots' class='import-form'>"
+    html += f"<form id='uploadForm_time_slots' action='/admin/import/time_slots' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_time_slots()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("time_slots")
     html += "<form method='post' action='/admin/time-slots/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllTimeSlots'> Выделить всё</label>"
-    html += "<ul>"
-    for ts in time_slots:
-        html += f"<li><input type='checkbox' name='ids' value='{ts.id}'> "
-        html += f"{ts.name} (№{ts.slot_number}, {ts.start_time}–{ts.end_time})"
-        if ts.duration_minutes:
-            html += f", длительность: {ts.duration_minutes} мин"
-        if not ts.is_active:
-            html += " [неактивен]"
-        html += f" <a href='/admin/time-slots/edit/{ts.id}'>Редактировать</a> "
-        html += f"<a href='/admin/time-slots/delete/{ts.id}'>Удалить</a></li>"
-    html += "</ul>"
     html += "</form>"
     html += "<form method='post' action='/admin/time-slots/add' style='margin-top: 20px;'>"
     html += "<input type='number' name='slot_number' placeholder='Номер пары' required>"
@@ -613,6 +1043,17 @@ def render_time_slots_html(time_slots):
     html += "<label><input type='checkbox' name='is_active' value='true' checked> Активен</label>"
     html += "<button type='submit'>Добавить</button>"
     html += "</form>"
+    html += "<ul>"
+    for ts in time_slots:
+        html += f"<li><input type='checkbox' name='ids' value='{ts.id}'> "
+        html += f"{ts.name} (№{ts.slot_number}, {ts.start_time}–{ts.end_time})"
+        if ts.duration_minutes:
+            html += f", длительность: {ts.duration_minutes} мин"
+        if not ts.is_active:
+            html += " [неактивен]"
+        html += f" <a href='/admin/time-slots/edit/{ts.id}'>Редактировать</a> "
+        html += f"<a href='/admin/time-slots/delete/{ts.id}'>Удалить</a></li>"
+    html += "</ul>"
     html += "<a href='/admin/'>На главную админки</a>"
     html += """
     <script>
@@ -634,10 +1075,23 @@ def render_time_slots_html(time_slots):
 
 def render_subjects_html(subjects):
     html = f"<h1>Дисциплины</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/subjects' class='btn-excel'>📎 Экспорт в Excel</a></div>"
+    html += "<div><a href='/admin/export/subjects' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_subjects()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_subjects' class='import-form'>"
+    html += f"<form id='uploadForm_subjects' action='/admin/import/subjects' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_subjects()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("subjects")
     html += "<form method='post' action='/admin/subjects/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllSubjects'> Выделить всё</label>"
+    html += "</form>"
+    html += "<form method='post' action='/admin/subjects/add' style='margin-top: 20px;'>"
+    html += "<input type='text' name='name' placeholder='Название дисциплины' required>"
+    html += "<button type='submit'>Добавить</button>"
+    html += "</form>"
     html += "<ul>"
     for s in subjects:
         html += f"<li><input type='checkbox' name='ids' value='{s.id}'> "
@@ -645,11 +1099,6 @@ def render_subjects_html(subjects):
         html += f"<a href='/admin/subjects/edit/{s.id}'>Редактировать</a> "
         html += f"<a href='/admin/subjects/delete/{s.id}'>Удалить</a></li>"
     html += "</ul>"
-    html += "</form>"
-    html += "<form method='post' action='/admin/subjects/add' style='margin-top: 20px;'>"
-    html += "<input type='text' name='name' placeholder='Название дисциплины' required>"
-    html += "<button type='submit'>Добавить</button>"
-    html += "</form>"
     html += "<a href='/admin/'>На главную админки</a>"
     html += """
     <script>
@@ -671,31 +1120,32 @@ def render_subjects_html(subjects):
 
 def render_teacher_groups_html(teacher_groups, teachers, groups):
     html = f"<h1>Связи преподавателей и групп</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/teacher_groups' class='btn-excel'>📎 Экспорт в Excel</a></div>"
-    
+    html += "<div><a href='/admin/export/teacher_groups' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_teacher_groups()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_teacher_groups' class='import-form'>"
+    html += f"<form id='uploadForm_teacher_groups' action='/admin/import/teacher_groups' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_teacher_groups()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("teacher_groups")
     # Форма добавления с чекбоксами
     html += "<form method='post' action='/admin/teacher-groups/add'>"
     html += "<div style='display: flex; gap: 20px;'>"
-    
-    # Преподаватели (чекбоксы, прокрутка)
     html += "<div><label>Преподаватели:</label><br>"
     html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for t in teachers:
         html += f"<label><input type='checkbox' name='teacher_ids' value='{t.id}'> {t.name}</label><br>"
     html += "</div></div>"
-    
-    # Группы (чекбоксы)
     html += "<div><label>Группы:</label><br>"
     html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for g in groups:
         html += f"<label><input type='checkbox' name='group_ids' value='{g.id}'> {g.name}</label><br>"
     html += "</div></div>"
-    
     html += "</div>"
     html += "<button type='submit' style='margin-top: 10px;'>Добавить выбранные комбинации</button>"
     html += "</form>"
-    
-    # Форма удаления (без изменений)
+    # Форма удаления
     html += "<form method='post' action='/admin/teacher-groups/bulk-delete' onsubmit='return confirmDeleteSelectedTG();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllTG'> Выделить всё</label>"
@@ -724,30 +1174,32 @@ def render_teacher_groups_html(teacher_groups, teachers, groups):
 
 def render_teacher_subjects_html(teacher_subjects, teachers, subjects):
     html = f"<h1>Связи преподавателей и предметов</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/teacher_subjects' class='btn-excel'>📎 Экспорт в Excel</a></div>"
-    
+    html += "<div><a href='/admin/export/teacher_subjects' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_teacher_subjects()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_teacher_subjects' class='import-form'>"
+    html += f"<form id='uploadForm_teacher_subjects' action='/admin/import/teacher_subjects' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_teacher_subjects()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("teacher_subjects")
+    # Форма добавления
     html += "<form method='post' action='/admin/teacher-subjects/add'>"
     html += "<div style='display: flex; gap: 20px; margin-bottom: 10px;'>"
-    
-    # Преподаватели (чекбоксы)
     html += "<div><label>Преподаватели:</label><br>"
     html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for t in teachers:
         html += f"<label><input type='checkbox' name='teacher_ids' value='{t.id}'> {t.name}</label><br>"
     html += "</div></div>"
-    
-    # Предметы (чекбоксы)
     html += "<div><label>Предметы:</label><br>"
     html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for s in subjects:
         html += f"<label><input type='checkbox' name='subject_ids' value='{s.id}'> {s.name}</label><br>"
     html += "</div></div>"
     html += "</div>"
-    
     html += "<label><input type='checkbox' name='is_main' value='true'> Основной преподаватель (для всех выбранных комбинаций)</label><br>"
     html += "<button type='submit'>Добавить выбранные комбинации</button>"
     html += "</form>"
-    
     # Форма удаления
     html += "<form method='post' action='/admin/teacher-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedTS();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
@@ -778,29 +1230,31 @@ def render_teacher_subjects_html(teacher_subjects, teachers, subjects):
 
 def render_audience_subjects_html(audience_subjects, audiences, subjects):
     html = f"<h1>Связи аудиторий и предметов</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/audience_subjects' class='btn-excel'>📎 Экспорт в Excel</a></div>"
-    
+    html += "<div><a href='/admin/export/audience_subjects' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_audience_subjects()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_audience_subjects' class='import-form'>"
+    html += f"<form id='uploadForm_audience_subjects' action='/admin/import/audience_subjects' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_audience_subjects()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("audience_subjects")
+    # Форма добавления
     html += "<form method='post' action='/admin/audience-subjects/add'>"
     html += "<div style='display: flex; gap: 20px; margin-bottom: 10px;'>"
-    
-    # Аудитории (чекбоксы)
     html += "<div><label>Аудитории:</label><br>"
     html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for a in audiences:
         html += f"<label><input type='checkbox' name='audience_ids' value='{a.id}'> {a.name}</label><br>"
     html += "</div></div>"
-    
-    # Предметы (чекбоксы)
     html += "<div><label>Предметы:</label><br>"
     html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for s in subjects:
         html += f"<label><input type='checkbox' name='subject_ids' value='{s.id}'> {s.name}</label><br>"
     html += "</div></div>"
     html += "</div>"
-    
     html += "<button type='submit'>Добавить выбранные комбинации</button>"
     html += "</form>"
-    
     # Форма удаления
     html += "<form method='post' action='/admin/audience-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedAS();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
@@ -830,29 +1284,31 @@ def render_audience_subjects_html(audience_subjects, audiences, subjects):
 
 def render_group_subjects_html(group_subjects, groups, subjects):
     html = f"<h1>Связи групп и предметов</h1>{_common_styles()}"
-    html += "<div><a href='/admin/export/group_subjects' class='btn-excel'>📎 Экспорт в Excel</a></div>"
-    
+    html += "<div><a href='/admin/export/group_subjects' class='btn-excel'>📎 Экспорт в Excel</a>"
+    html += " <button onclick='toggleImportForm_group_subjects()' class='btn-excel btn-import'>📂 Импорт из Excel</button></div>"
+    html += f"<div id='importForm_group_subjects' class='import-form'>"
+    html += f"<form id='uploadForm_group_subjects' action='/admin/import/group_subjects' method='post' enctype='multipart/form-data'>"
+    html += "<input type='file' name='file' accept='.xlsx,.xls' required>"
+    html += "<button type='submit'>Загрузить</button>"
+    html += "<button type='button' onclick='toggleImportForm_group_subjects()'>Отмена</button>"
+    html += "</form></div>"
+    html += _import_script("group_subjects")
+    # Форма добавления
     html += "<form method='post' action='/admin/group-subjects/add'>"
     html += "<div style='display: flex; gap: 20px; margin-bottom: 10px;'>"
-    
-    # Группы (чекбоксы)
     html += "<div><label>Группы:</label><br>"
     html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for g in groups:
         html += f"<label><input type='checkbox' name='group_ids' value='{g.id}'> {g.name}</label><br>"
     html += "</div></div>"
-    
-    # Предметы (чекбоксы)
     html += "<div><label>Предметы:</label><br>"
     html += "<div style='max-height: 200px; overflow-y: auto; border:1px solid #ccc; padding:8px; width: 250px;'>"
     for s in subjects:
         html += f"<label><input type='checkbox' name='subject_ids' value='{s.id}'> {s.name}</label><br>"
     html += "</div></div>"
     html += "</div>"
-    
     html += "<button type='submit'>Добавить выбранные комбинации</button>"
     html += "</form>"
-    
     # Форма удаления
     html += "<form method='post' action='/admin/group-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedGS();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
@@ -887,12 +1343,14 @@ async def admin_home():
     {_common_styles()}
     <h1>Административная панель</h1>
     <ul>
+        <li><a href='/admin/manual-schedule'>Ручное составление расписания</a></li>
         <li><a href='/admin/groups'>Группы</a></li>
         <li><a href='/admin/teachers'>Преподаватели</a></li>
         <li><a href='/admin/audiences'>Аудитории</a></li>
         <li><a href='/admin/buildings'>Здания</a></li>
         <li><a href='/admin/calendar'>Календарь</a></li>
         <li><a href='/admin/faculties'>Факультеты</a></li>
+        <li><a href='/admin/users'>Пользователи</a></li>
         <li><a href='/admin/user-types'>Типы пользователей</a></li>
         <li><a href='/admin/subdivisions'>Подразделения</a></li>
         <li><a href='/admin/roles'>Роли</a></li>
@@ -904,6 +1362,8 @@ async def admin_home():
         <li><a href='/admin/audience-subjects'>Связи: аудитории-предметы</a></li>
         <li><a href='/admin/group-subjects'>Связи: группы-предметы</a></li>
         <li><a href='/admin/stats'>Статистика</a></li>
+        <li><a href='/admin/schedule-editor'>Черновик расписания</a></li>
+        <li><a href='/admin/final-schedule'>Опубликованное расписание</a></li>
     </ul>
     <a href='/'>На главную API</a>
     """)
@@ -1011,20 +1471,6 @@ async def confirm_delete_teacher(teacher_id: int, db: AsyncSession = Depends(get
     teacher = await teacher_service.get_teacher(db, teacher_id)
     if not teacher:
         return HTMLResponse("Преподаватель не найден", status_code=404)
-    html = f"""
-    <h1>Удалить преподавателя "{teacher.name}"?</h1>
-    <form method="post" action="/admin/teachers/delete/{teacher_id}">
-        <button type="submit">Да, удалить</button>
-        <a href="/admin/teachers">Отмена</a>
-    </form>
-    """
-    return HTMLResponse(content=html)
-
-@router.get("/teachers/delete/{teacher_id}", response_class=HTMLResponse)
-async def confirm_delete_teacher(teacher_id: int, db: AsyncSession = Depends(get_db)):
-    teacher = await teacher_service.get_teacher(db, teacher_id)
-    if not teacher:
-        return HTMLResponse("Преподаватель не найден", status_code=404)
     if await has_dependent_teacher_groups(db, teacher_id) or await has_dependent_teacher_subjects(db, teacher_id):
         html = f"""
         <h1>Ошибка удаления преподавателя "{teacher.name}"</h1>
@@ -1040,6 +1486,11 @@ async def confirm_delete_teacher(teacher_id: int, db: AsyncSession = Depends(get
     </form>
     """
     return HTMLResponse(content=html)
+
+@router.post("/teachers/delete/{teacher_id}", response_model=None)
+async def delete_teacher(teacher_id: int, db: AsyncSession = Depends(get_db)):
+    await teacher_service.delete_teacher(db, teacher_id)
+    return RedirectResponse(url="/admin/teachers", status_code=303)
 
 @router.post("/teachers/bulk-delete", response_model=None)
 async def bulk_delete_teachers(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
@@ -1317,7 +1768,6 @@ async def delete_faculty(faculty_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/faculties/bulk-delete", response_model=None)
 async def bulk_delete_faculties(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
-    # Проверка каждого факультета
     forbidden = []
     for fid in ids:
         if await has_dependent_groups(db, fid):
@@ -1390,6 +1840,108 @@ async def delete_user_type(ut_id: int, db: AsyncSession = Depends(get_db)):
 async def bulk_delete_user_types(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
     await user_type_service.bulk_delete_user_types(db, ids)
     return RedirectResponse(url="/admin/user-types", status_code=303)
+
+# ----- ПОЛЬЗОВАТЕЛИ -----
+@router.get("/users", response_class=HTMLResponse)
+async def users_page(db: AsyncSession = Depends(get_db)):
+    users = await user_service.get_all_users(db)
+    user_types = await user_type_service.get_all_user_types(db)
+    return HTMLResponse(content=render_users_html(users, user_types))
+
+@router.post("/users/add", response_model=None)
+async def add_user(
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    full_name: str = Form(None),
+    user_type_id: int = Form(None),
+    is_active: bool = Form(True),
+    db: AsyncSession = Depends(get_db)
+):
+    data = UserCreate(
+        username=username,
+        email=email,
+        password=password,
+        full_name=full_name,
+        user_type_id=user_type_id,
+        is_active=is_active
+    )
+    await user_service.create_user(db, data)
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+@router.get("/users/edit/{user_id}", response_class=HTMLResponse)
+async def edit_user_form(user_id: int, db: AsyncSession = Depends(get_db)):
+    user = await user_service.get_user(db, user_id)
+    if not user:
+        return HTMLResponse("Пользователь не найден", status_code=404)
+    user_types = await user_type_service.get_all_user_types(db)
+    html = f"""
+    <h1>Редактировать пользователя {user.username}</h1>
+    <form method="post" action="/admin/users/edit/{user_id}">
+        <input type="text" name="username" value="{user.username}" required>
+        <input type="email" name="email" value="{user.email}" required>
+        <input type="password" name="password" placeholder="Новый пароль (оставьте пустым, чтобы не менять)">
+        <input type="text" name="full_name" value="{user.full_name or ''}">
+        <select name="user_type_id">
+            <option value="">Тип пользователя</option>
+    """
+    for ut in user_types:
+        selected = "selected" if ut.id == user.user_type_id else ""
+        html += f'<option value="{ut.id}" {selected}>{ut.name}</option>'
+    html += f"""
+        </select>
+        <label><input type="checkbox" name="is_active" value="true" {'checked' if user.is_active else ''}> Активен</label>
+        <button type="submit">Сохранить</button>
+    </form>
+    <a href="/admin/users">Отмена</a>
+    """
+    return HTMLResponse(content=html)
+
+@router.post("/users/edit/{user_id}", response_model=None)
+async def edit_user(
+    user_id: int,
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(None),
+    full_name: str = Form(None),
+    user_type_id: int = Form(None),
+    is_active: bool = Form(True),
+    db: AsyncSession = Depends(get_db)
+):
+    data = UserUpdate(
+        username=username,
+        email=email,
+        password=password if password else None,
+        full_name=full_name,
+        user_type_id=user_type_id,
+        is_active=is_active
+    )
+    await user_service.update_user(db, user_id, data)
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+@router.get("/users/delete/{user_id}", response_class=HTMLResponse)
+async def confirm_delete_user(user_id: int, db: AsyncSession = Depends(get_db)):
+    user = await user_service.get_user(db, user_id)
+    if not user:
+        return HTMLResponse("Пользователь не найден", status_code=404)
+    html = f"""
+    <h1>Удалить пользователя "{user.username}"?</h1>
+    <form method="post" action="/admin/users/delete/{user_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/admin/users">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@router.post("/users/delete/{user_id}", response_model=None)
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db)):
+    await user_service.delete_user(db, user_id)
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+@router.post("/users/bulk-delete", response_model=None)
+async def bulk_delete_users(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
+    await user_service.bulk_delete_users(db, ids)
+    return RedirectResponse(url="/admin/users", status_code=303)
 
 # ----- ПОДРАЗДЕЛЕНИЯ -----
 @router.get("/subdivisions", response_class=HTMLResponse)
@@ -1995,6 +2547,260 @@ async def export_group_subjects(db: AsyncSession = Depends(get_db)):
     s_dict = {s.id: s.name for s in subjects}
     data = [{"ID группы": r['group_id'], "Группа": g_dict.get(r['group_id'], ""), "ID предмета": r['subject_id'], "Предмет": s_dict.get(r['subject_id'], "")} for r in rels]
     return export_to_excel(data, ["ID группы", "Группа", "ID предмета", "Предмет"], "Группы-предметы", "group_subjects.xlsx")
+
+# ---------- РУЧНОЕ СОСТАВЛЕНИЕ РАСПИСАНИЯ ----------
+from datetime import date
+from sqlalchemy import delete
+from app.models.reference import Lesson
+import io
+from fastapi import UploadFile, File
+from openpyxl import load_workbook
+from datetime import datetime
+
+@router.get("/manual-schedule", response_class=HTMLResponse)
+async def manual_schedule_page(db: AsyncSession = Depends(get_db)):
+    subjects = await subject_service.get_all_subjects(db)
+    time_slots = await time_slot_service.get_all_time_slots(db)
+    lessons = await db.execute(select(Lesson).order_by(Lesson.date))
+    lessons = lessons.scalars().all()
+
+    lesson_data = []
+    for les in lessons:
+        lesson_data.append({
+    "id": les.id,
+    "date": les.date,
+    "week_day": les.week_day,
+    "subject": les.subject.name if les.subject else "—",
+    "time_slot": les.time_slot.name if les.time_slot else "—",
+    "student_count": les.student_count or ""
+}) 
+
+    html = f"""
+    <html>
+    <head>
+        <title>Ручное составление расписания</title>
+        <style>
+            body {{ font-family: sans-serif; margin: 20px; }}
+            .form-group {{ margin-bottom: 10px; }}
+            label {{ display: inline-block; width: 120px; }}
+            .btn {{ background: #007bff; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; }}
+            .btn-danger {{ background: #dc3545; }}
+            .btn-excel {{ background: #28a745; }}
+            table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background: #f2f2f2; }}
+            .delete-form {{ display: inline; }}
+        </style>
+    </head>
+    <body>
+        <h1>Ручное составление расписания</h1>
+        <form method="post" action="/admin/manual-schedule/add">
+            <div class="form-group">
+                <label>Предмет:</label>
+                <select name="subject_id" required>
+                    <option value="">Выберите предмет</option>
+    """
+    for s in subjects:
+        html += f'<option value="{s.id}">{s.name}</option>'
+    html += """
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Дата:</label>
+                <input type="date" name="date" required>
+            </div>
+            <div class="form-group">
+                <label>Время (пара):</label>
+                <select name="time_slot_id" required>
+                    <option value="">Выберите время</option>
+    """
+    for ts in time_slots:
+        html += f'<option value="{ts.id}">{ts.name} ({ts.start_time}-{ts.end_time})</option>'
+    html += """
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Кол-во студентов:</label>
+                <input type="number" name="student_count" placeholder="Необязательно">
+            </div>
+            <button type="submit" class="btn">Добавить занятие</button>
+        </form>
+
+        <hr>
+        <h2>Загрузить из Excel</h2>
+        <form method="post" action="/admin/manual-schedule/upload" enctype="multipart/form-data">
+            <input type="file" name="file" accept=".xlsx,.xls" required>
+            <button type="submit" class="btn btn-excel">📎 Загрузить Excel</button>
+        </form>
+        <p style="font-size: 0.9em; color: #666;">Формат: первая строка — заголовки: subject_name, date, time_slot_name, student_count, type, text. 
+        Предметы и временные слоты должны существовать в справочниках.</p>
+        <hr>
+
+        <h2>Созданные занятия</h2>
+        <form method="post" action="/admin/manual-schedule/bulk-delete" onsubmit="return confirmDeleteSelected();">
+            <button type="submit" class="btn btn-danger">Удалить выбранные</button>
+            <label><input type="checkbox" id="selectAllLessons"> Выделить всё</label>
+            <table>
+                <thead>
+                    <tr><th>Выбрать</th><th>ID</th><th>Дата</th><th>Предмет</th><th>Время</th><th>Студентов</th><th>Действия</th></tr>
+                </thead>
+                <tbody>
+    """
+    for ld in lesson_data:
+        html += f"""
+            <tr>
+                <td><input type="checkbox" name="ids" value="{ld['id']}"></td>
+                <td>{ld['id']}</td>
+                <td>{ld['date']}</td>
+                <td>{ld['week_day']}</td>
+                <td>{ld['subject']}</td>
+                <td>{ld['time_slot']}</td>
+                <td>{ld['student_count']}</td>
+                <td>
+                    <a href="/admin/manual-schedule/delete/{ld['id']}" class="btn btn-danger" style="text-decoration:none; padding:2px 8px;">Удалить</a>
+                </td>
+            </tr>
+        """
+    html += """
+                </tbody>
+            </table>
+        </form>
+        <br><a href="/admin/">На главную админки</a>
+        <script>
+            const selectAll = document.getElementById('selectAllLessons');
+            if(selectAll) selectAll.addEventListener('change', function() {
+                document.querySelectorAll('input[name="ids"]').forEach(cb => cb.checked = selectAll.checked);
+            });
+            function confirmDeleteSelected() {
+                const anyChecked = document.querySelectorAll('input[name="ids"]:checked').length > 0;
+                if (!anyChecked) { alert('Не выбрано ни одной записи'); return false; }
+                return confirm('Удалить выбранные занятия?');
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+@router.post("/manual-schedule/add", response_model=None)
+async def add_manual_lesson(
+    subject_id: int = Form(...),
+    date: date = Form(...),
+    time_slot_id: int = Form(...),
+    student_count: int = Form(None),
+    db: AsyncSession = Depends(get_db)
+):
+    week_day = date.isoweekday()   # вычисляем день недели
+    lesson = Lesson(
+        subject_id=subject_id,
+        date=date,
+        time_slot_id=time_slot_id,
+        student_count=student_count,
+        week_day=week_day
+    )
+    db.add(lesson)
+    await db.commit()
+    return RedirectResponse(url="/admin/manual-schedule", status_code=303)
+
+@router.post("/manual-schedule/bulk-delete", response_model=None)
+async def bulk_delete_lessons(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
+    for lid in ids:
+        await db.execute(delete(Lesson).where(Lesson.id == lid))
+    await db.commit()
+    return RedirectResponse(url="/admin/manual-schedule", status_code=303)
+
+@router.get("/manual-schedule/delete/{lesson_id}", response_class=HTMLResponse)
+async def confirm_delete_lesson(lesson_id: int, db: AsyncSession = Depends(get_db)):
+    html = f"""
+    <h1>Удалить занятие {lesson_id}?</h1>
+    <form method="post" action="/admin/manual-schedule/delete/{lesson_id}">
+        <button type="submit" class="btn btn-danger">Да, удалить</button>
+        <a href="/admin/manual-schedule">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@router.post("/manual-schedule/delete/{lesson_id}", response_model=None)
+async def delete_lesson(lesson_id: int, db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(Lesson).where(Lesson.id == lesson_id))
+    await db.commit()
+    return RedirectResponse(url="/admin/manual-schedule", status_code=303)
+
+@router.post("/manual-schedule/upload")
+async def upload_lessons_excel(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(400, "Файл должен быть Excel (.xlsx или .xls)")
+
+    try:
+        contents = await file.read()
+        wb = load_workbook(filename=io.BytesIO(contents))
+        ws = wb.active
+    except Exception as e:
+        raise HTTPException(400, f"Ошибка чтения файла: {e}")
+
+    expected_headers = ['subject_name', 'date', 'time_slot_name', 'student_count', 'type', 'text']
+    headers = [cell.value for cell in ws[1]]
+    missing = set(expected_headers) - set(headers)
+    if missing:
+        raise HTTPException(400, f"Отсутствуют колонки: {missing}")
+
+    col_idx = {h: headers.index(h) for h in expected_headers}
+    subjects = {s.name: s.id for s in await subject_service.get_all_subjects(db)}
+    time_slots = {ts.name: ts.id for ts in await time_slot_service.get_all_time_slots(db)}
+
+    added = 0
+    errors = []
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not any(row):
+            continue
+        try:
+            subject_name = row[col_idx['subject_name']]
+            date_str = row[col_idx['date']]
+            time_slot_name = row[col_idx['time_slot_name']]
+            student_count = row[col_idx['student_count']]
+            lesson_type = row[col_idx['type']] if col_idx['type'] < len(row) else None
+            text = row[col_idx['text']] if col_idx['text'] < len(row) else None
+
+            if isinstance(date_str, datetime):
+                lesson_date = date_str.date()
+            else:
+                lesson_date = datetime.strptime(str(date_str), "%Y-%m-%d").date()
+
+            if subject_name not in subjects:
+                errors.append(f"Строка {row_idx}: предмет '{subject_name}' не найден")
+                continue
+            subject_id = subjects[subject_name]
+
+            if time_slot_name not in time_slots:
+                errors.append(f"Строка {row_idx}: временной слот '{time_slot_name}' не найден")
+                continue
+            time_slot_id = time_slots[time_slot_name]
+
+            week_day = lesson_date.isoweekday()
+
+            lesson = Lesson(
+                subject_id=subject_id,
+                date=lesson_date,
+                time_slot_id=time_slot_id,
+                student_count=student_count if student_count else None,
+                type=lesson_type,
+                text=text,
+                week_day=week_day
+            )
+            db.add(lesson)
+            added += 1
+        except Exception as e:
+            errors.append(f"Строка {row_idx}: {str(e)}")
+
+    await db.commit()
+    return {
+        "message": "Загрузка завершена",
+        "added": added,
+        "errors": errors
+    }
 
 # ---------- СТАТИСТИКА ----------
 @router.get("/stats", response_class=HTMLResponse)
