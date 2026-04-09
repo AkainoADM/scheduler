@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, Form, Request, BackgroundTasks, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 import io
@@ -51,68 +51,64 @@ from app.schemas.group_subject import GroupSubjectCreate
 from app.services import user as user_service
 from app.schemas.user import UserCreate, UserUpdate
 
+from app.models.reference import Lesson, ScheduleItem, FinalScheduleItem, Subject, TimeSlot, Audience
 from sqlalchemy.orm import selectinload
-from app.models.reference import ScheduleItem, FinalScheduleItem, Lesson, Subject, TimeSlot, Audience
+
+import json
+from app.services.audit import log_action
+from app.models.reference import UserActivityLog
+
+from app.services.audit import log_action
 
 router = APIRouter(prefix="/admin", tags=["Admin Pages"])
 
 # ---------- Вспомогательные функции для проверки зависимостей ----------
 async def has_dependent_groups(db: AsyncSession, faculty_id: int) -> bool:
-    from sqlalchemy import func
     from app.models.reference import Group
     result = await db.execute(select(func.count()).select_from(Group).where(Group.faculty_id == faculty_id))
     return result.scalar() > 0
 
 async def has_dependent_audiences(db: AsyncSession, building_id: int) -> bool:
-    from sqlalchemy import func
     from app.models.reference import Audience
     result = await db.execute(select(func.count()).select_from(Audience).where(Audience.building_id == building_id))
     return result.scalar() > 0
 
 async def has_dependent_audience_subjects(db: AsyncSession, audience_id: int) -> bool:
-    from sqlalchemy import func
-    from app.models.reference import op_audience_subject
-    result = await db.execute(select(func.count()).select_from(op_audience_subject).where(op_audience_subject.c.audience_id == audience_id))
+    from app.models.reference import op_audiences_of_pairs
+    result = await db.execute(select(func.count()).select_from(op_audiences_of_pairs).where(op_audiences_of_pairs.c.audience_id == audience_id))
     return result.scalar() > 0
 
 async def has_dependent_teacher_groups(db: AsyncSession, teacher_id: int) -> bool:
-    from sqlalchemy import func
-    from app.models.reference import op_teachers_of_groups
-    result = await db.execute(select(func.count()).select_from(op_teachers_of_groups).where(op_teachers_of_groups.c.teacher_id == teacher_id))
+    from app.models.reference import op_teachers_groups
+    result = await db.execute(select(func.count()).select_from(op_teachers_groups).where(op_teachers_groups.c.teachers_id == teacher_id))
     return result.scalar() > 0
 
 async def has_dependent_teacher_subjects(db: AsyncSession, teacher_id: int) -> bool:
-    from sqlalchemy import func
     from app.models.reference import op_teachers_of_pairs
     result = await db.execute(select(func.count()).select_from(op_teachers_of_pairs).where(op_teachers_of_pairs.c.teacher_id == teacher_id))
     return result.scalar() > 0
 
 async def has_dependent_group_teachers(db: AsyncSession, group_id: int) -> bool:
-    from sqlalchemy import func
-    from app.models.reference import op_teachers_of_groups
-    result = await db.execute(select(func.count()).select_from(op_teachers_of_groups).where(op_teachers_of_groups.c.group_id == group_id))
+    from app.models.reference import op_teachers_groups
+    result = await db.execute(select(func.count()).select_from(op_teachers_groups).where(op_teachers_groups.c.groups_id == group_id))
     return result.scalar() > 0
 
 async def has_dependent_group_subjects(db: AsyncSession, group_id: int) -> bool:
-    from sqlalchemy import func
     from app.models.reference import op_groups_of_pairs
     result = await db.execute(select(func.count()).select_from(op_groups_of_pairs).where(op_groups_of_pairs.c.group_id == group_id))
     return result.scalar() > 0
 
 async def has_dependent_subject_teachers(db: AsyncSession, subject_id: int) -> bool:
-    from sqlalchemy import func
     from app.models.reference import op_teachers_of_pairs
     result = await db.execute(select(func.count()).select_from(op_teachers_of_pairs).where(op_teachers_of_pairs.c.subject_id == subject_id))
     return result.scalar() > 0
 
 async def has_dependent_subject_audiences(db: AsyncSession, subject_id: int) -> bool:
-    from sqlalchemy import func
-    from app.models.reference import op_audience_subject
-    result = await db.execute(select(func.count()).select_from(op_audience_subject).where(op_audience_subject.c.subject_id == subject_id))
+    from app.models.reference import op_audiences_of_pairs
+    result = await db.execute(select(func.count()).select_from(op_audiences_of_pairs).where(op_audiences_of_pairs.c.subject_id == subject_id))
     return result.scalar() > 0
 
 async def has_dependent_subject_groups(db: AsyncSession, subject_id: int) -> bool:
-    from sqlalchemy import func
     from app.models.reference import op_groups_of_pairs
     result = await db.execute(select(func.count()).select_from(op_groups_of_pairs).where(op_groups_of_pairs.c.subject_id == subject_id))
     return result.scalar() > 0
@@ -166,250 +162,6 @@ async def proxy_upload(entity: str, file: UploadFile, db: AsyncSession):
         response = await client.post(api_url, files=files)
         response.raise_for_status()
         return response.json()
-
-# Добавьте в app/routers/admin_views.py (после импортов, но до router)
-from app.models.reference import ScheduleItem, Lesson, Subject, TimeSlot, Audience, FinalScheduleItem
-
-@router.get("/schedule-editor", response_class=HTMLResponse)
-async def schedule_editor_page(db: AsyncSession = Depends(get_db)):
-    # Загружаем все черновики с необходимыми связями
-    items = await db.execute(
-        select(ScheduleItem)
-        .options(
-            selectinload(ScheduleItem.lesson).selectinload(Lesson.subject),
-            selectinload(ScheduleItem.time_slot),
-            selectinload(ScheduleItem.audience)
-        )
-        .order_by(ScheduleItem.date, ScheduleItem.time_slot_id)
-    )
-    items = items.scalars().all()
-
-    # Для выпадающих списков аудиторий и временных слотов
-    audiences = await audience_service.get_all_audiences(db)
-    time_slots = await time_slot_service.get_all_time_slots(db)
-
-    # Формируем данные для таблицы
-    rows = []
-    for item in items:
-        lesson = item.lesson
-        subject = lesson.subject if lesson else None
-        rows.append({
-            "id": item.id,
-            "date": item.date,
-            "subject": subject.name if subject else "—",
-            "time_slot": item.time_slot,
-            "audience": item.audience,
-            "lesson_id": lesson.id if lesson else None,
-        })
-
-    # Генерируем HTML
-    html = f"""
-    <html>
-    <head>
-        <title>Редактор черновика расписания</title>
-        {_common_styles()}
-        <style>
-            .edit-form {{ display: inline; margin-left: 10px; }}
-            select, input {{ padding: 4px; margin: 2px; }}
-            button {{ margin: 2px; }}
-        </style>
-    </head>
-    <body>
-        <h1>Черновик расписания</h1>
-        <div><a href="/admin/export/schedule_items" class="btn-excel">📎 Экспорт черновика в Excel</a></div>
-        <div style="margin-top: 20px;">
-            <form method="post" action="/admin/schedule/approve" onsubmit="return confirm('Утвердить расписание? Текущее опубликованное будет заменено.');">
-                <button type="submit" class="btn" style="background: #28a745;">✅ Утвердить расписание</button>
-            </form>
-        </div>
-        <table border="1" style="width:100%; margin-top:20px;">
-            <thead>
-                <tr><th>ID</th><th>Дата</th><th>Предмет</th><th>Время</th><th>Аудитория</th><th>Действия</th></tr>
-            </thead>
-            <tbody>
-    """
-    for row in rows:
-        # Строим выпадающие списки для аудиторий и времени
-        audience_options = ""
-        for a in audiences:
-            selected = "selected" if row["audience"] and a.id == row["audience"].id else ""
-            audience_options += f'<option value="{a.id}" {selected}>{a.name}</option>'
-        time_slot_options = ""
-        for ts in time_slots:
-            selected = "selected" if row["time_slot"] and ts.id == row["time_slot"].id else ""
-            time_slot_options += f'<option value="{ts.id}" {selected}>{ts.name} ({ts.start_time}-{ts.end_time})</option>'
-
-        html += f"""
-            <tr>
-                <td>{row["id"]}</td>
-                <td><input type="date" name="date_{row["id"]}" value="{row["date"]}" form="edit_{row["id"]}" style="width:120px;"></td>
-                <td>{row["subject"]}</td>
-                <td><select name="time_slot_id_{row["id"]}" form="edit_{row["id"]}">{time_slot_options}</select></td>
-                <td><select name="audience_id_{row["id"]}" form="edit_{row["id"]}">{audience_options}</select></td>
-                <td>
-                    <form id="edit_{row["id"]}" method="post" action="/admin/schedule/update/{row["id"]}" style="display:inline;">
-                        <button type="submit">Сохранить</button>
-                    </form>
-                    <a href="/admin/schedule/delete/{row["id"]}" onclick="return confirm('Удалить занятие из черновика?');">Удалить</a>
-                </td>
-            </tr>
-        """
-    html += """
-            </tbody>
-        </table>
-        <br><a href="/admin/">На главную админки</a>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html)
-
-@router.post("/schedule/update/{item_id}", response_model=None)
-async def update_schedule_item(
-    item_id: int,
-    date: date = Form(...),
-    time_slot_id: int = Form(...),
-    audience_id: int = Form(...),
-    db: AsyncSession = Depends(get_db)
-):
-    item = await db.get(ScheduleItem, item_id)
-    if item:
-        item.date = date
-        item.time_slot_id = time_slot_id
-        item.audience_id = audience_id
-        await db.commit()
-    return RedirectResponse(url="/admin/schedule-editor", status_code=303)
-
-@router.get("/schedule/delete/{item_id}", response_class=HTMLResponse)
-async def confirm_delete_schedule_item(item_id: int, db: AsyncSession = Depends(get_db)):
-    item = await db.get(ScheduleItem, item_id)
-    if not item:
-        return HTMLResponse("Запись не найдена", status_code=404)
-    html = f"""
-    <h1>Удалить занятие из черновика?</h1>
-    <p>ID: {item.id}, Дата: {item.date}</p>
-    <form method="post" action="/admin/schedule/delete/{item_id}">
-        <button type="submit">Да, удалить</button>
-        <a href="/admin/schedule-editor">Отмена</a>
-    </form>
-    """
-    return HTMLResponse(content=html)
-
-@router.post("/schedule/delete/{item_id}", response_model=None)
-async def delete_schedule_item(item_id: int, db: AsyncSession = Depends(get_db)):
-    await db.execute(delete(ScheduleItem).where(ScheduleItem.id == item_id))
-    await db.commit()
-    return RedirectResponse(url="/admin/schedule-editor", status_code=303)
-
-@router.post("/schedule/approve", response_model=None)
-async def approve_schedule(db: AsyncSession = Depends(get_db)):
-    # Очищаем старую публикацию
-    await db.execute(delete(FinalScheduleItem))
-    # Копируем все черновики
-    drafts = await db.execute(select(ScheduleItem))
-    drafts = drafts.scalars().all()
-    for d in drafts:
-        final = FinalScheduleItem(
-            lesson_id=d.lesson_id,
-            time_slot_id=d.time_slot_id,
-            audience_id=d.audience_id,
-            date=d.date
-        )
-        db.add(final)
-    await db.commit()
-    return RedirectResponse(url="/admin/schedule-editor", status_code=303)
-
-@router.get("/export/schedule_items")
-async def export_schedule_items(db: AsyncSession = Depends(get_db)):
-    items = await db.execute(
-        select(ScheduleItem)
-        .options(
-            selectinload(ScheduleItem.lesson).selectinload(Lesson.subject),
-            selectinload(ScheduleItem.time_slot),
-            selectinload(ScheduleItem.audience)
-        )
-    )
-    items = items.scalars().all()
-    data = []
-    for item in items:
-        lesson = item.lesson
-        subject = lesson.subject if lesson else None
-        data.append({
-            "ID": item.id,
-            "Дата": item.date,
-            "Предмет": subject.name if subject else "—",
-            "Время": item.time_slot.name if item.time_slot else "—",
-            "Аудитория": item.audience.name if item.audience else "—",
-            "Закреплено": "Да" if item.is_pinned else "Нет"
-        })
-    columns = ["ID", "Дата", "Предмет", "Время", "Аудитория", "Закреплено"]
-    return export_to_excel(data, columns, "Черновик расписания", "schedule_items.xlsx")
-
-@router.get("/final-schedule", response_class=HTMLResponse)
-async def final_schedule_page(db: AsyncSession = Depends(get_db)):
-    items = await db.execute(
-        select(FinalScheduleItem)
-        .options(
-            selectinload(FinalScheduleItem.lesson).selectinload(Lesson.subject),
-            selectinload(FinalScheduleItem.time_slot),
-            selectinload(FinalScheduleItem.audience)
-        )
-        .order_by(FinalScheduleItem.date, FinalScheduleItem.time_slot_id)
-    )
-    items = items.scalars().all()
-    rows = []
-    for item in items:
-        lesson = item.lesson
-        subject = lesson.subject if lesson else None
-        rows.append({
-            "date": item.date,
-            "subject": subject.name if subject else "—",
-            "time_slot": item.time_slot.name if item.time_slot else "—",
-            "audience": item.audience.name if item.audience else "—",
-        })
-    html = f"""
-    <html>
-    <head><title>Опубликованное расписание</title>{_common_styles()}</head>
-    <body>
-        <h1>Опубликованное расписание</h1>
-        <div><a href="/admin/export/final_schedule" class="btn-excel">📎 Экспорт в Excel</a></div>
-        <table border="1" style="width:100%; margin-top:20px;">
-            <thead><tr><th>Дата</th><th>Предмет</th><th>Время</th><th>Аудитория</th></tr></thead>
-            <tbody>
-    """
-    for row in rows:
-        html += f"<tr><td>{row['date']}</td><td>{row['subject']}</td><td>{row['time_slot']}</td><td>{row['audience']}</td></tr>"
-    html += """
-            </tbody>
-        </table>
-        <br><a href="/admin/">На главную админки</a>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html)
-
-@router.get("/export/final_schedule")
-async def export_final_schedule(db: AsyncSession = Depends(get_db)):
-    items = await db.execute(
-        select(FinalScheduleItem)
-        .options(
-            selectinload(FinalScheduleItem.lesson).selectinload(Lesson.subject),
-            selectinload(FinalScheduleItem.time_slot),
-            selectinload(FinalScheduleItem.audience)
-        )
-    )
-    items = items.scalars().all()
-    data = []
-    for item in items:
-        lesson = item.lesson
-        subject = lesson.subject if lesson else None
-        data.append({
-            "Дата": item.date,
-            "Предмет": subject.name if subject else "—",
-            "Время": item.time_slot.name if item.time_slot else "—",
-            "Аудитория": item.audience.name if item.audience else "—",
-        })
-    columns = ["Дата", "Предмет", "Время", "Аудитория"]
-    return export_to_excel(data, columns, "Опубликованное расписание", "final_schedule.xlsx")
 
 # ---------- Эндпоинт импорта ----------
 @router.post("/import/{entity}")
@@ -481,7 +233,6 @@ def render_groups_html(groups, faculties):
     html += "<button type='button' onclick='toggleImportForm_groups()'>Отмена</button>"
     html += "</form></div>"
     html += _import_script("groups")
-    # Форма добавления
     html += "<form method='post' action='/admin/groups/add'>"
     html += "<input type='text' name='name' placeholder='Название группы' required>"
     html += "<select name='faculty_id' required><option value=''>Выберите факультет</option>"
@@ -738,13 +489,6 @@ def render_faculties_html(faculties):
     html += "<form method='post' action='/admin/faculties/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllFaculties'> Выделить всё</label>"
-    html += "</form>"
-    html += "<form method='post' action='/admin/faculties/add' style='margin-top: 20px;'>"
-    html += "<input type='text' name='name' placeholder='Название' required>"
-    html += "<input type='text' name='display_name' placeholder='Отображаемое имя'>"
-    html += "<input type='text' name='short_display_name' placeholder='Короткое имя'>"
-    html += "<button type='submit'>Добавить</button>"
-    html += "</form>"
     html += "<ul>"
     for f in faculties:
         html += f"<li><input type='checkbox' name='ids' value='{f.id}'> "
@@ -756,6 +500,13 @@ def render_faculties_html(faculties):
         html += f" <a href='/admin/faculties/edit/{f.id}'>Редактировать</a> "
         html += f"<a href='/admin/faculties/delete/{f.id}'>Удалить</a></li>"
     html += "</ul>"
+    html += "</form>"
+    html += "<form method='post' action='/admin/faculties/add' style='margin-top: 20px;'>"
+    html += "<input type='text' name='name' placeholder='Название' required>"
+    html += "<input type='text' name='display_name' placeholder='Отображаемое имя'>"
+    html += "<input type='text' name='short_display_name' placeholder='Короткое имя'>"
+    html += "<button type='submit'>Добавить</button>"
+    html += "</form>"
     html += "<a href='/admin/'>На главную админки</a>"
     html += """
     <script>
@@ -1032,17 +783,6 @@ def render_time_slots_html(time_slots):
     html += "<form method='post' action='/admin/time-slots/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllTimeSlots'> Выделить всё</label>"
-    html += "</form>"
-    html += "<form method='post' action='/admin/time-slots/add' style='margin-top: 20px;'>"
-    html += "<input type='number' name='slot_number' placeholder='Номер пары' required>"
-    html += "<input type='text' name='name' placeholder='Название (например, 1 пара)' required>"
-    html += "<input type='time' name='start_time' placeholder='Время начала (HH:MM)' required>"
-    html += "<input type='time' name='end_time' placeholder='Время окончания (HH:MM)' required>"
-    html += "<input type='number' name='duration_minutes' placeholder='Длительность (мин)'>"
-    html += "<input type='number' name='break_after_minutes' placeholder='Перерыв после (мин)'>"
-    html += "<label><input type='checkbox' name='is_active' value='true' checked> Активен</label>"
-    html += "<button type='submit'>Добавить</button>"
-    html += "</form>"
     html += "<ul>"
     for ts in time_slots:
         html += f"<li><input type='checkbox' name='ids' value='{ts.id}'> "
@@ -1054,6 +794,17 @@ def render_time_slots_html(time_slots):
         html += f" <a href='/admin/time-slots/edit/{ts.id}'>Редактировать</a> "
         html += f"<a href='/admin/time-slots/delete/{ts.id}'>Удалить</a></li>"
     html += "</ul>"
+    html += "</form>"
+    html += "<form method='post' action='/admin/time-slots/add' style='margin-top: 20px;'>"
+    html += "<input type='number' name='slot_number' placeholder='Номер пары' required>"
+    html += "<input type='text' name='name' placeholder='Название (например, 1 пара)' required>"
+    html += "<input type='time' name='start_time' placeholder='Время начала (HH:MM)' required>"
+    html += "<input type='time' name='end_time' placeholder='Время окончания (HH:MM)' required>"
+    html += "<input type='number' name='duration_minutes' placeholder='Длительность (мин)'>"
+    html += "<input type='number' name='break_after_minutes' placeholder='Перерыв после (мин)'>"
+    html += "<label><input type='checkbox' name='is_active' value='true' checked> Активен</label>"
+    html += "<button type='submit'>Добавить</button>"
+    html += "</form>"
     html += "<a href='/admin/'>На главную админки</a>"
     html += """
     <script>
@@ -1087,11 +838,6 @@ def render_subjects_html(subjects):
     html += "<form method='post' action='/admin/subjects/bulk-delete' onsubmit='return confirmDeleteSelected();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllSubjects'> Выделить всё</label>"
-    html += "</form>"
-    html += "<form method='post' action='/admin/subjects/add' style='margin-top: 20px;'>"
-    html += "<input type='text' name='name' placeholder='Название дисциплины' required>"
-    html += "<button type='submit'>Добавить</button>"
-    html += "</form>"
     html += "<ul>"
     for s in subjects:
         html += f"<li><input type='checkbox' name='ids' value='{s.id}'> "
@@ -1099,6 +845,11 @@ def render_subjects_html(subjects):
         html += f"<a href='/admin/subjects/edit/{s.id}'>Редактировать</a> "
         html += f"<a href='/admin/subjects/delete/{s.id}'>Удалить</a></li>"
     html += "</ul>"
+    html += "</form>"
+    html += "<form method='post' action='/admin/subjects/add' style='margin-top: 20px;'>"
+    html += "<input type='text' name='name' placeholder='Название дисциплины' required>"
+    html += "<button type='submit'>Добавить</button>"
+    html += "</form>"
     html += "<a href='/admin/'>На главную админки</a>"
     html += """
     <script>
@@ -1129,7 +880,6 @@ def render_teacher_groups_html(teacher_groups, teachers, groups):
     html += "<button type='button' onclick='toggleImportForm_teacher_groups()'>Отмена</button>"
     html += "</form></div>"
     html += _import_script("teacher_groups")
-    # Форма добавления с чекбоксами
     html += "<form method='post' action='/admin/teacher-groups/add'>"
     html += "<div style='display: flex; gap: 20px;'>"
     html += "<div><label>Преподаватели:</label><br>"
@@ -1145,7 +895,6 @@ def render_teacher_groups_html(teacher_groups, teachers, groups):
     html += "</div>"
     html += "<button type='submit' style='margin-top: 10px;'>Добавить выбранные комбинации</button>"
     html += "</form>"
-    # Форма удаления
     html += "<form method='post' action='/admin/teacher-groups/bulk-delete' onsubmit='return confirmDeleteSelectedTG();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllTG'> Выделить всё</label>"
@@ -1183,7 +932,6 @@ def render_teacher_subjects_html(teacher_subjects, teachers, subjects):
     html += "<button type='button' onclick='toggleImportForm_teacher_subjects()'>Отмена</button>"
     html += "</form></div>"
     html += _import_script("teacher_subjects")
-    # Форма добавления
     html += "<form method='post' action='/admin/teacher-subjects/add'>"
     html += "<div style='display: flex; gap: 20px; margin-bottom: 10px;'>"
     html += "<div><label>Преподаватели:</label><br>"
@@ -1200,7 +948,6 @@ def render_teacher_subjects_html(teacher_subjects, teachers, subjects):
     html += "<label><input type='checkbox' name='is_main' value='true'> Основной преподаватель (для всех выбранных комбинаций)</label><br>"
     html += "<button type='submit'>Добавить выбранные комбинации</button>"
     html += "</form>"
-    # Форма удаления
     html += "<form method='post' action='/admin/teacher-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedTS();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllTS'> Выделить всё</label>"
@@ -1239,7 +986,6 @@ def render_audience_subjects_html(audience_subjects, audiences, subjects):
     html += "<button type='button' onclick='toggleImportForm_audience_subjects()'>Отмена</button>"
     html += "</form></div>"
     html += _import_script("audience_subjects")
-    # Форма добавления
     html += "<form method='post' action='/admin/audience-subjects/add'>"
     html += "<div style='display: flex; gap: 20px; margin-bottom: 10px;'>"
     html += "<div><label>Аудитории:</label><br>"
@@ -1255,7 +1001,6 @@ def render_audience_subjects_html(audience_subjects, audiences, subjects):
     html += "</div>"
     html += "<button type='submit'>Добавить выбранные комбинации</button>"
     html += "</form>"
-    # Форма удаления
     html += "<form method='post' action='/admin/audience-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedAS();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllAS'> Выделить всё</label>"
@@ -1293,7 +1038,6 @@ def render_group_subjects_html(group_subjects, groups, subjects):
     html += "<button type='button' onclick='toggleImportForm_group_subjects()'>Отмена</button>"
     html += "</form></div>"
     html += _import_script("group_subjects")
-    # Форма добавления
     html += "<form method='post' action='/admin/group-subjects/add'>"
     html += "<div style='display: flex; gap: 20px; margin-bottom: 10px;'>"
     html += "<div><label>Группы:</label><br>"
@@ -1309,7 +1053,6 @@ def render_group_subjects_html(group_subjects, groups, subjects):
     html += "</div>"
     html += "<button type='submit'>Добавить выбранные комбинации</button>"
     html += "</form>"
-    # Форма удаления
     html += "<form method='post' action='/admin/group-subjects/bulk-delete' onsubmit='return confirmDeleteSelectedGS();'>"
     html += "<button type='submit'>Удалить выбранные</button>"
     html += "<label><input type='checkbox' id='selectAllGS'> Выделить всё</label>"
@@ -1344,6 +1087,8 @@ async def admin_home():
     <h1>Административная панель</h1>
     <ul>
         <li><a href='/admin/manual-schedule'>Ручное составление расписания</a></li>
+        <li><a href='/admin/schedule-editor'>Черновик расписания</a></li>
+        <li><a href='/admin/final-schedule'>Опубликованное расписание</a></li>
         <li><a href='/admin/groups'>Группы</a></li>
         <li><a href='/admin/teachers'>Преподаватели</a></li>
         <li><a href='/admin/audiences'>Аудитории</a></li>
@@ -1362,8 +1107,7 @@ async def admin_home():
         <li><a href='/admin/audience-subjects'>Связи: аудитории-предметы</a></li>
         <li><a href='/admin/group-subjects'>Связи: группы-предметы</a></li>
         <li><a href='/admin/stats'>Статистика</a></li>
-        <li><a href='/admin/schedule-editor'>Черновик расписания</a></li>
-        <li><a href='/admin/final-schedule'>Опубликованное расписание</a></li>
+        <li><a href='/admin/logs'>Журнал действий</a></li>
     </ul>
     <a href='/'>На главную API</a>
     """)
@@ -1412,6 +1156,13 @@ async def confirm_delete_group(group_id: int, db: AsyncSession = Depends(get_db)
     group = await group_service.get_group(db, group_id)
     if not group:
         return HTMLResponse("Группа не найдена", status_code=404)
+    if await has_dependent_group_subjects(db, group_id) or await has_dependent_group_teachers(db, group_id):
+        html = f"""
+        <h1>Ошибка удаления группы "{group.name}"</h1>
+        <p>Невозможно удалить группу, так как она связана с предметами или преподавателями. Сначала удалите эти связи.</p>
+        <a href="/admin/groups">Вернуться к списку групп</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     html = f"""
     <h1>Удалить группу "{group.name}"?</h1>
     <form method="post" action="/admin/groups/delete/{group_id}">
@@ -1423,11 +1174,24 @@ async def confirm_delete_group(group_id: int, db: AsyncSession = Depends(get_db)
 
 @router.post("/groups/delete/{group_id}", response_model=None)
 async def delete_group(group_id: int, db: AsyncSession = Depends(get_db)):
+    if await has_dependent_group_subjects(db, group_id) or await has_dependent_group_teachers(db, group_id):
+        return RedirectResponse(url="/admin/groups", status_code=303)
     await group_service.delete_group(db, group_id)
     return RedirectResponse(url="/admin/groups", status_code=303)
 
 @router.post("/groups/bulk-delete", response_model=None)
 async def bulk_delete_groups(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
+    forbidden = []
+    for gid in ids:
+        if await has_dependent_group_subjects(db, gid) or await has_dependent_group_teachers(db, gid):
+            forbidden.append(gid)
+    if forbidden:
+        html = f"""
+        <h1>Ошибка массового удаления</h1>
+        <p>Следующие группы имеют связи с предметами или преподавателями и не могут быть удалены: {forbidden}</p>
+        <a href="/admin/groups">Вернуться к списку групп</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     await group_service.bulk_delete_groups(db, ids)
     return RedirectResponse(url="/admin/groups", status_code=303)
 
@@ -1489,6 +1253,8 @@ async def confirm_delete_teacher(teacher_id: int, db: AsyncSession = Depends(get
 
 @router.post("/teachers/delete/{teacher_id}", response_model=None)
 async def delete_teacher(teacher_id: int, db: AsyncSession = Depends(get_db)):
+    if await has_dependent_teacher_groups(db, teacher_id) or await has_dependent_teacher_subjects(db, teacher_id):
+        return RedirectResponse(url="/admin/teachers", status_code=303)
     await teacher_service.delete_teacher(db, teacher_id)
     return RedirectResponse(url="/admin/teachers", status_code=303)
 
@@ -1561,6 +1327,13 @@ async def confirm_delete_audience(audience_id: int, db: AsyncSession = Depends(g
     audience = await audience_service.get_audience(db, audience_id)
     if not audience:
         return HTMLResponse("Аудитория не найдена", status_code=404)
+    if await has_dependent_audience_subjects(db, audience_id):
+        html = f"""
+        <h1>Ошибка удаления аудитории "{audience.name}"</h1>
+        <p>Невозможно удалить аудиторию, так как она связана с предметами в таблице op_audiences_of_pairs. Сначала удалите эти связи.</p>
+        <a href="/admin/audiences">Вернуться к списку аудиторий</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     html = f"""
     <h1>Удалить аудиторию "{audience.name}"?</h1>
     <form method="post" action="/admin/audiences/delete/{audience_id}">
@@ -1572,11 +1345,24 @@ async def confirm_delete_audience(audience_id: int, db: AsyncSession = Depends(g
 
 @router.post("/audiences/delete/{audience_id}", response_model=None)
 async def delete_audience(audience_id: int, db: AsyncSession = Depends(get_db)):
+    if await has_dependent_audience_subjects(db, audience_id):
+        return RedirectResponse(url="/admin/audiences", status_code=303)
     await audience_service.delete_audience(db, audience_id)
     return RedirectResponse(url="/admin/audiences", status_code=303)
 
 @router.post("/audiences/bulk-delete", response_model=None)
 async def bulk_delete_audiences(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
+    forbidden = []
+    for aid in ids:
+        if await has_dependent_audience_subjects(db, aid):
+            forbidden.append(aid)
+    if forbidden:
+        html = f"""
+        <h1>Ошибка массового удаления</h1>
+        <p>Следующие аудитории имеют связи с предметами и не могут быть удалены: {forbidden}</p>
+        <a href="/admin/audiences">Вернуться к списку аудиторий</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     await audience_service.bulk_delete_audiences(db, ids)
     return RedirectResponse(url="/admin/audiences", status_code=303)
 
@@ -1619,6 +1405,13 @@ async def confirm_delete_building(building_id: int, db: AsyncSession = Depends(g
     building = await building_service.get_building(db, building_id)
     if not building:
         return HTMLResponse("Здание не найдено", status_code=404)
+    if await has_dependent_audiences(db, building_id):
+        html = f"""
+        <h1>Ошибка удаления здания "{building.name}"</h1>
+        <p>Невозможно удалить здание, так как к нему привязаны аудитории. Сначала удалите или переназначьте аудитории.</p>
+        <a href="/admin/buildings">Вернуться к списку зданий</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     html = f"""
     <h1>Удалить здание "{building.name}"?</h1>
     <form method="post" action="/admin/buildings/delete/{building_id}">
@@ -1630,11 +1423,24 @@ async def confirm_delete_building(building_id: int, db: AsyncSession = Depends(g
 
 @router.post("/buildings/delete/{building_id}", response_model=None)
 async def delete_building(building_id: int, db: AsyncSession = Depends(get_db)):
+    if await has_dependent_audiences(db, building_id):
+        return RedirectResponse(url="/admin/buildings", status_code=303)
     await building_service.delete_building(db, building_id)
     return RedirectResponse(url="/admin/buildings", status_code=303)
 
 @router.post("/buildings/bulk-delete", response_model=None)
 async def bulk_delete_buildings(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
+    forbidden = []
+    for bid in ids:
+        if await has_dependent_audiences(db, bid):
+            forbidden.append(bid)
+    if forbidden:
+        html = f"""
+        <h1>Ошибка массового удаления</h1>
+        <p>Следующие здания имеют привязанные аудитории и не могут быть удалены: {forbidden}</p>
+        <a href="/admin/buildings">Вернуться к списку зданий</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     await building_service.bulk_delete_buildings(db, ids)
     return RedirectResponse(url="/admin/buildings", status_code=303)
 
@@ -1763,6 +1569,8 @@ async def confirm_delete_faculty(faculty_id: int, db: AsyncSession = Depends(get
 
 @router.post("/faculties/delete/{faculty_id}", response_model=None)
 async def delete_faculty(faculty_id: int, db: AsyncSession = Depends(get_db)):
+    if await has_dependent_groups(db, faculty_id):
+        return RedirectResponse(url="/admin/faculties", status_code=303)
     await faculty_service.delete_faculty(db, faculty_id)
     return RedirectResponse(url="/admin/faculties", status_code=303)
 
@@ -2224,6 +2032,15 @@ async def confirm_delete_subject(subject_id: int, db: AsyncSession = Depends(get
     subject = await subject_service.get_subject(db, subject_id)
     if not subject:
         return HTMLResponse("Дисциплина не найдена", status_code=404)
+    if (await has_dependent_subject_teachers(db, subject_id) or
+        await has_dependent_subject_audiences(db, subject_id) or
+        await has_dependent_subject_groups(db, subject_id)):
+        html = f"""
+        <h1>Ошибка удаления дисциплины "{subject.name}"</h1>
+        <p>Невозможно удалить дисциплину, так как она связана с преподавателями, аудиториями или группами. Сначала удалите эти связи.</p>
+        <a href="/admin/subjects">Вернуться к списку дисциплин</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     html = f"""
     <h1>Удалить дисциплину "{subject.name}"?</h1>
     <form method="post" action="/admin/subjects/delete/{subject_id}">
@@ -2235,11 +2052,28 @@ async def confirm_delete_subject(subject_id: int, db: AsyncSession = Depends(get
 
 @router.post("/subjects/delete/{subject_id}", response_model=None)
 async def delete_subject(subject_id: int, db: AsyncSession = Depends(get_db)):
+    if (await has_dependent_subject_teachers(db, subject_id) or
+        await has_dependent_subject_audiences(db, subject_id) or
+        await has_dependent_subject_groups(db, subject_id)):
+        return RedirectResponse(url="/admin/subjects", status_code=303)
     await subject_service.delete_subject(db, subject_id)
     return RedirectResponse(url="/admin/subjects", status_code=303)
 
 @router.post("/subjects/bulk-delete", response_model=None)
 async def bulk_delete_subjects(ids: List[int] = Form(...), db: AsyncSession = Depends(get_db)):
+    forbidden = []
+    for sid in ids:
+        if (await has_dependent_subject_teachers(db, sid) or
+            await has_dependent_subject_audiences(db, sid) or
+            await has_dependent_subject_groups(db, sid)):
+            forbidden.append(sid)
+    if forbidden:
+        html = f"""
+        <h1>Ошибка массового удаления</h1>
+        <p>Следующие дисциплины имеют связи и не могут быть удалены: {forbidden}</p>
+        <a href="/admin/subjects">Вернуться к списку дисциплин</a>
+        """
+        return HTMLResponse(content=html, status_code=400)
     await subject_service.bulk_delete_subjects(db, ids)
     return RedirectResponse(url="/admin/subjects", status_code=303)
 
@@ -2567,13 +2401,12 @@ async def manual_schedule_page(db: AsyncSession = Depends(get_db)):
     lesson_data = []
     for les in lessons:
         lesson_data.append({
-    "id": les.id,
-    "date": les.date,
-    "week_day": les.week_day,
-    "subject": les.subject.name if les.subject else "—",
-    "time_slot": les.time_slot.name if les.time_slot else "—",
-    "student_count": les.student_count or ""
-}) 
+            "id": les.id,
+            "date": les.date,
+            "subject": les.subject.name if les.subject else "—",
+            "time_slot": les.time_slot.name if les.time_slot else "—",
+            "student_count": les.student_count or ""
+        })
 
     html = f"""
     <html>
@@ -2652,7 +2485,6 @@ async def manual_schedule_page(db: AsyncSession = Depends(get_db)):
                 <td><input type="checkbox" name="ids" value="{ld['id']}"></td>
                 <td>{ld['id']}</td>
                 <td>{ld['date']}</td>
-                <td>{ld['week_day']}</td>
                 <td>{ld['subject']}</td>
                 <td>{ld['time_slot']}</td>
                 <td>{ld['student_count']}</td>
@@ -2690,13 +2522,11 @@ async def add_manual_lesson(
     student_count: int = Form(None),
     db: AsyncSession = Depends(get_db)
 ):
-    week_day = date.isoweekday()   # вычисляем день недели
     lesson = Lesson(
         subject_id=subject_id,
         date=date,
         time_slot_id=time_slot_id,
-        student_count=student_count,
-        week_day=week_day
+        student_count=student_count
     )
     db.add(lesson)
     await db.commit()
@@ -2802,6 +2632,241 @@ async def upload_lessons_excel(
         "errors": errors
     }
 
+# ---------- ЧЕРНОВИК РАСПИСАНИЯ ----------
+@router.get("/schedule-editor", response_class=HTMLResponse)
+async def schedule_editor_page(db: AsyncSession = Depends(get_db)):
+    items = await db.execute(
+        select(ScheduleItem)
+        .options(
+            selectinload(ScheduleItem.lesson).selectinload(Lesson.subject),
+            selectinload(ScheduleItem.time_slot),
+            selectinload(ScheduleItem.audience)
+        )
+        .order_by(ScheduleItem.date, ScheduleItem.time_slot_id)
+    )
+    items = items.scalars().all()
+    audiences = await audience_service.get_all_audiences(db)
+    time_slots = await time_slot_service.get_all_time_slots(db)
+
+    rows = []
+    for item in items:
+        lesson = item.lesson
+        subject = lesson.subject if lesson else None
+        rows.append({
+            "id": item.id,
+            "date": item.date,
+            "subject": subject.name if subject else "—",
+            "time_slot": item.time_slot,
+            "audience": item.audience,
+            "lesson_id": lesson.id if lesson else None,
+        })
+
+    html = f"""
+    <html>
+    <head>
+        <title>Редактор черновика расписания</title>
+        {_common_styles()}
+        <style>
+            .edit-form {{ display: inline; margin-left: 10px; }}
+            select, input {{ padding: 4px; margin: 2px; }}
+            button {{ margin: 2px; }}
+        </style>
+    </head>
+    <body>
+        <h1>Черновик расписания</h1>
+        <div><a href="/admin/export/schedule_items" class="btn-excel">📎 Экспорт черновика в Excel</a></div>
+        <div style="margin-top: 20px;">
+            <form method="post" action="/admin/schedule/approve" onsubmit="return confirm('Утвердить расписание? Текущее опубликованное будет заменено.');">
+                <button type="submit" class="btn" style="background: #28a745;">✅ Утвердить расписание</button>
+            </form>
+        </div>
+        <table border="1" style="width:100%; margin-top:20px;">
+            <thead>
+                <tr><th>ID</th><th>Дата</th><th>Предмет</th><th>Время</th><th>Аудитория</th><th>Действия</th></tr>
+            </thead>
+            <tbody>
+    """
+    for row in rows:
+        audience_options = ""
+        for a in audiences:
+            selected = "selected" if row["audience"] and a.id == row["audience"].id else ""
+            audience_options += f'<option value="{a.id}" {selected}>{a.name}</option>'
+        time_slot_options = ""
+        for ts in time_slots:
+            selected = "selected" if row["time_slot"] and ts.id == row["time_slot"].id else ""
+            time_slot_options += f'<option value="{ts.id}" {selected}>{ts.name} ({ts.start_time}-{ts.end_time})</option>'
+
+        html += f"""
+            <tr>
+                <td>{row["id"]}</td>
+                <td><input type="date" name="date_{row["id"]}" value="{row["date"]}" form="edit_{row["id"]}" style="width:120px;"></td>
+                <td>{row["subject"]}</td>
+                <td><select name="time_slot_id_{row["id"]}" form="edit_{row["id"]}">{time_slot_options}</select></td>
+                <td><select name="audience_id_{row["id"]}" form="edit_{row["id"]}">{audience_options}</select></td>
+                <td>
+                    <form id="edit_{row["id"]}" method="post" action="/admin/schedule/update/{row["id"]}" style="display:inline;">
+                        <button type="submit">Сохранить</button>
+                    </form>
+                    <a href="/admin/schedule/delete/{row["id"]}" onclick="return confirm('Удалить занятие из черновика?');">Удалить</a>
+                </td>
+            </tr>
+        """
+    html += """
+            </tbody>
+        </table>
+        <br><a href="/admin/">На главную админки</a>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+@router.post("/schedule/update/{item_id}", response_model=None)
+async def update_schedule_item(
+    item_id: int,
+    date: date = Form(...),
+    time_slot_id: int = Form(...),
+    audience_id: int = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    item = await db.get(ScheduleItem, item_id)
+    if item:
+        item.date = date
+        item.time_slot_id = time_slot_id
+        item.audience_id = audience_id
+        await db.commit()
+    return RedirectResponse(url="/admin/schedule-editor", status_code=303)
+
+@router.get("/schedule/delete/{item_id}", response_class=HTMLResponse)
+async def confirm_delete_schedule_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    item = await db.get(ScheduleItem, item_id)
+    if not item:
+        return HTMLResponse("Запись не найдена", status_code=404)
+    html = f"""
+    <h1>Удалить занятие из черновика?</h1>
+    <p>ID: {item.id}, Дата: {item.date}</p>
+    <form method="post" action="/admin/schedule/delete/{item_id}">
+        <button type="submit">Да, удалить</button>
+        <a href="/admin/schedule-editor">Отмена</a>
+    </form>
+    """
+    return HTMLResponse(content=html)
+
+@router.post("/schedule/delete/{item_id}", response_model=None)
+async def delete_schedule_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(ScheduleItem).where(ScheduleItem.id == item_id))
+    await db.commit()
+    return RedirectResponse(url="/admin/schedule-editor", status_code=303)
+
+@router.post("/schedule/approve", response_model=None)
+async def approve_schedule(db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(FinalScheduleItem))
+    drafts = await db.execute(select(ScheduleItem))
+    drafts = drafts.scalars().all()
+    for d in drafts:
+        final = FinalScheduleItem(
+            lesson_id=d.lesson_id,
+            time_slot_id=d.time_slot_id,
+            audience_id=d.audience_id,
+            date=d.date
+        )
+        db.add(final)
+    await db.commit()
+    return RedirectResponse(url="/admin/schedule-editor", status_code=303)
+
+@router.get("/export/schedule_items")
+async def export_schedule_items(db: AsyncSession = Depends(get_db)):
+    items = await db.execute(
+        select(ScheduleItem)
+        .options(
+            selectinload(ScheduleItem.lesson).selectinload(Lesson.subject),
+            selectinload(ScheduleItem.time_slot),
+            selectinload(ScheduleItem.audience)
+        )
+    )
+    items = items.scalars().all()
+    data = []
+    for item in items:
+        lesson = item.lesson
+        subject = lesson.subject if lesson else None
+        data.append({
+            "ID": item.id,
+            "Дата": item.date,
+            "Предмет": subject.name if subject else "—",
+            "Время": item.time_slot.name if item.time_slot else "—",
+            "Аудитория": item.audience.name if item.audience else "—",
+            "Закреплено": "Да" if item.is_pinned else "Нет"
+        })
+    columns = ["ID", "Дата", "Предмет", "Время", "Аудитория", "Закреплено"]
+    return export_to_excel(data, columns, "Черновик расписания", "schedule_items.xlsx")
+
+# ---------- ОПУБЛИКОВАННОЕ РАСПИСАНИЕ ----------
+@router.get("/final-schedule", response_class=HTMLResponse)
+async def final_schedule_page(db: AsyncSession = Depends(get_db)):
+    items = await db.execute(
+        select(FinalScheduleItem)
+        .options(
+            selectinload(FinalScheduleItem.lesson).selectinload(Lesson.subject),
+            selectinload(FinalScheduleItem.time_slot),
+            selectinload(FinalScheduleItem.audience)
+        )
+        .order_by(FinalScheduleItem.date, FinalScheduleItem.time_slot_id)
+    )
+    items = items.scalars().all()
+    rows = []
+    for item in items:
+        lesson = item.lesson
+        subject = lesson.subject if lesson else None
+        rows.append({
+            "date": item.date,
+            "subject": subject.name if subject else "—",
+            "time_slot": item.time_slot.name if item.time_slot else "—",
+            "audience": item.audience.name if item.audience else "—",
+        })
+    html = f"""
+    <html>
+    <head><title>Опубликованное расписание</title>{_common_styles()}</head>
+    <body>
+        <h1>Опубликованное расписание</h1>
+        <div><a href="/admin/export/final_schedule" class="btn-excel">📎 Экспорт в Excel</a></div>
+        <table border="1" style="width:100%; margin-top:20px;">
+            <thead><tr><th>Дата</th><th>Предмет</th><th>Время</th><th>Аудитория</th></tr></thead>
+            <tbody>
+    """
+    for row in rows:
+        html += f"<tr><td>{row['date']}</td><td>{row['subject']}</td><td>{row['time_slot']}</td><td>{row['audience']}</td></tr>"
+    html += """
+            </tbody>
+        </table>
+        <br><a href="/admin/">На главную админки</a>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+@router.get("/export/final_schedule")
+async def export_final_schedule(db: AsyncSession = Depends(get_db)):
+    items = await db.execute(
+        select(FinalScheduleItem)
+        .options(
+            selectinload(FinalScheduleItem.lesson).selectinload(Lesson.subject),
+            selectinload(FinalScheduleItem.time_slot),
+            selectinload(FinalScheduleItem.audience)
+        )
+    )
+    items = items.scalars().all()
+    data = []
+    for item in items:
+        lesson = item.lesson
+        subject = lesson.subject if lesson else None
+        data.append({
+            "Дата": item.date,
+            "Предмет": subject.name if subject else "—",
+            "Время": item.time_slot.name if item.time_slot else "—",
+            "Аудитория": item.audience.name if item.audience else "—",
+        })
+    columns = ["Дата", "Предмет", "Время", "Аудитория"]
+    return export_to_excel(data, columns, "Опубликованное расписание", "final_schedule.xlsx")
+
 # ---------- СТАТИСТИКА ----------
 @router.get("/stats", response_class=HTMLResponse)
 async def stats_page(db: AsyncSession = Depends(get_db)):
@@ -2864,3 +2929,144 @@ async def stats_page(db: AsyncSession = Depends(get_db)):
     </html>
     """
     return HTMLResponse(content=html)
+
+@router.post("/groups/add", response_model=None)
+async def add_group(
+    request: Request,
+    name: str = Form(...),
+    faculty_id: int = Form(...),
+    student_count: int = Form(None),
+    db: AsyncSession = Depends(get_db)
+):
+    data = GroupCreate(name=name, faculty_id=faculty_id, student_count=student_count)
+    await group_service.create_group(db, data)
+    await log_action(db, "create_group", {"name": name, "faculty_id": faculty_id, "student_count": student_count}, request)
+    return RedirectResponse(url="/admin/groups", status_code=303)
+
+@router.get("/logs", response_class=HTMLResponse)
+async def logs_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    action: str = None,
+    user_id: int = None,
+    date_from: str = None,
+    date_to: str = None
+):
+    query = select(UserActivityLog).order_by(UserActivityLog.created_at.desc())
+    if action:
+        query = query.where(UserActivityLog.action_type == action)
+    if user_id:
+        query = query.where(UserActivityLog.user_id == user_id)
+    if date_from:
+        query = query.where(UserActivityLog.created_at >= datetime.fromisoformat(date_from))
+    if date_to:
+        query = query.where(UserActivityLog.created_at <= datetime.fromisoformat(date_to))
+    result = await db.execute(query)
+    logs = result.scalars().all()
+
+    # Получаем список уникальных действий для фильтра
+    actions_result = await db.execute(select(UserActivityLog.action_type).distinct())
+    actions = [row[0] for row in actions_result.all()]
+
+    html = f"""
+    <html>
+    <head>
+        <title>Журнал действий</title>
+        {_common_styles()}
+        <style>
+            .filter-form {{ margin-bottom: 20px; }}
+            .filter-form input, .filter-form select {{ margin-right: 10px; }}
+        </style>
+    </head>
+    <body>
+        <h1>Журнал действий</h1>
+        <form method="get" class="filter-form">
+            <select name="action">
+                <option value="">Все действия</option>
+                {''.join(f'<option value="{a}" {"selected" if action == a else ""}>{a}</option>' for a in actions)}
+            </select>
+            <input type="date" name="date_from" value="{date_from or ''}" placeholder="Дата от">
+            <input type="date" name="date_to" value="{date_to or ''}" placeholder="Дата до">
+            <button type="submit">Фильтр</button>
+            <a href="/admin/logs">Сбросить</a>
+        </form>
+        <div><a href="/admin/export/logs" class="btn-excel">📎 Экспорт в Excel</a></div>
+        <table border="1" style="width:100%; margin-top:20px;">
+            <thead>
+                <tr><th>ID</th><th>Время</th><th>Действие</th><th>Детали</th><th>IP</th><th>User Agent</th></tr>
+            </thead>
+            <tbody>
+    """
+    for log in logs:
+        html += f"""
+            <tr>
+                <td>{log.id}</td>
+                <td>{log.created_at}</td>
+                <td>{log.action_type}</td>
+                <td><pre>{json.dumps(log.action_details, ensure_ascii=False, indent=2)}</pre></td>
+                <td>{log.ip_address or ''}</td>
+                <td>{log.user_agent or ''}</td>
+            </tr>
+        """
+    html += """
+            </tbody>
+        </table>
+        <br><a href="/admin/">На главную админки</a>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+@router.get("/export/logs")
+async def export_logs(db: AsyncSession = Depends(get_db)):
+    logs = await db.execute(select(UserActivityLog).order_by(UserActivityLog.created_at))
+    logs = logs.scalars().all()
+    data = []
+    for log in logs:
+        data.append({
+            "ID": log.id,
+            "Время": log.created_at,
+            "Действие": log.action_type,
+            "Детали": json.dumps(log.action_details, ensure_ascii=False),
+            "IP": log.ip_address or "",
+            "User Agent": log.user_agent or "",
+        })
+    columns = ["ID", "Время", "Действие", "Детали", "IP", "User Agent"]
+    return export_to_excel(data, columns, "Логи действий", "audit_logs.xlsx")
+
+@router.post("/groups/add", response_model=None)
+async def add_group(
+    request: Request,
+    name: str = Form(...),
+    faculty_id: int = Form(...),
+    student_count: int = Form(None),
+    db: AsyncSession = Depends(get_db)
+):
+    data = GroupCreate(name=name, faculty_id=faculty_id, student_count=student_count)
+    group = await group_service.create_group(db, data)
+    await log_action(db, "create_group", {"id": group.id, "name": name, "faculty_id": faculty_id, "student_count": student_count}, request)
+    return RedirectResponse(url="/admin/groups", status_code=303)
+
+@router.post("/groups/edit/{group_id}", response_model=None)
+async def edit_group(
+    request: Request,
+    group_id: int,
+    name: str = Form(...),
+    faculty_id: int = Form(...),
+    student_count: int = Form(None),
+    db: AsyncSession = Depends(get_db)
+):
+    data = GroupUpdate(name=name, faculty_id=faculty_id, student_count=student_count)
+    await group_service.update_group(db, group_id, data)
+    await log_action(db, "update_group", {"id": group_id, "name": name, "faculty_id": faculty_id, "student_count": student_count}, request)
+    return RedirectResponse(url="/admin/groups", status_code=303)
+
+@router.post("/groups/delete/{group_id}", response_model=None)
+async def delete_group(
+    request: Request,
+    group_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    await group_service.delete_group(db, group_id)
+    await log_action(db, "delete_group", {"id": group_id}, request)
+    return RedirectResponse(url="/admin/groups", status_code=303)

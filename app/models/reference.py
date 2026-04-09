@@ -3,6 +3,8 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 import datetime
 
+from datetime import datetime, timezone
+
 # ---------- Связующие таблицы (многие-ко-многим) ----------
 op_groups_of_pairs = Table(
     'op_groups_of_pairs',
@@ -178,7 +180,7 @@ class FinalScheduleItem(Base):
     lesson = relationship("Lesson")
     time_slot = relationship("TimeSlot")
     audience = relationship("Audience")
-    
+
 class DayOfWeek(Base):
     __tablename__ = "ref_days_of_the_week"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -203,6 +205,16 @@ class Lesson(Base):
 
     subject = relationship("Subject")
     time_slot = relationship("TimeSlot")
+
+class UserActivityLog(Base):
+    __tablename__ = "op_user_activity_logs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('ref_users.id'), nullable=True)
+    action_type = Column(String)
+    action_details = Column(JSON)
+    ip_address = Column(String)
+    user_agent = Column(String)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 from sqlalchemy import Table, Column, Integer, Boolean, ForeignKey
 
@@ -241,4 +253,6 @@ op_groups_of_pairs = Table(
     Column('subject_id', Integer, ForeignKey('ref_subject.id'), primary_key=True),
     extend_existing=True
 )
+
+
 
