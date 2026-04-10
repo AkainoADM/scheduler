@@ -1,8 +1,8 @@
+# app/models/reference.py
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Date, Time, Table, JSON, DateTime
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 import datetime
-
 from datetime import datetime, timezone
 
 # ---------- Связующие таблицы (многие-ко-многим) ----------
@@ -21,7 +21,21 @@ op_teachers_of_pairs = Table(
     Column('is_main', Boolean, default=True)
 )
 
-# ---------- Справочники ----------
+op_audiences_of_pairs = Table(
+    'op_audiences_of_pairs',
+    Base.metadata,
+    Column('audience_id', Integer, ForeignKey('ref_audiences.id'), primary_key=True),
+    Column('subject_id', Integer, ForeignKey('ref_subject.id'), primary_key=True)
+)
+
+op_teachers_groups = Table(
+    'op_teachers_groups',
+    Base.metadata,
+    Column('teachers_id', Integer, ForeignKey('ref_teachers.id'), primary_key=True),
+    Column('groups_id', Integer, ForeignKey('ref_groups.id'), primary_key=True)
+)
+
+# ---------- Справочники (ref_*) ----------
 class Subject(Base):
     __tablename__ = "ref_subject"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -36,7 +50,7 @@ class Audience(Base):
     name = Column(String)
     building_id = Column(Integer, ForeignKey('ref_buildings.id'))
     capacity = Column(Integer)
-    type = Column(String)   # лекционная, практическая, лабораторная, компьютерный класс
+    type = Column(String)
     is_active = Column(Boolean, default=True)
 
     building = relationship("Building", backref="audiences")
@@ -77,7 +91,6 @@ class Teacher(Base):
     login = Column(String, unique=True)
     name = Column(String)
     url = Column(String)
-    # max_hours_per_day/week отсутствуют в новой БД
 
 class TimeSlot(Base):
     __tablename__ = "ref_time_slots"
@@ -129,34 +142,29 @@ class User(Base):
 
     user_type = relationship("UserType")
 
-# ---------- Операционные таблицы для расписания ----------
+# ---------- Операционные таблицы ----------
 class Lesson(Base):
     __tablename__ = "op_lessons"
+    __table_args__ = {'extend_existing': True}
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     subject_id = Column(Integer, ForeignKey('ref_subject.id'))
     date = Column(Date)
     student_count = Column(Integer)
     time_slot_id = Column(Integer, ForeignKey('ref_time_slots.id'), nullable=True)
+    week_day = Column(Integer)
+    text = Column(String)
+    type = Column(String)
+    group_id = Column(Integer, ForeignKey('ref_groups.id'), nullable=True)   # новое поле
 
     subject = relationship("Subject")
     time_slot = relationship("TimeSlot")
-
-class ScheduleItem(Base):
-    __tablename__ = "op_schedule_items_1"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    lesson_id = Column(Integer, ForeignKey('op_lessons.id'))
-    time_slot_id = Column(Integer, ForeignKey('ref_time_slots.id'))
-    audience_id = Column(Integer, ForeignKey('ref_audiences.id'))
-    date = Column(Date)
-    status = Column(String, default='scheduled')
-    is_pinned = Column(Boolean, default=False)
-
-    lesson = relationship("Lesson")
-    time_slot = relationship("TimeSlot")
-    audience = relationship("Audience")
+    group = relationship("Group")   # новая связь
 
 class ScheduleItem(Base):
     __tablename__ = "op_schedule_items"
+    __table_args__ = {'extend_existing': True}
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     lesson_id = Column(Integer, ForeignKey('op_lessons.id'))
     time_slot_id = Column(Integer, ForeignKey('ref_time_slots.id'))
@@ -171,6 +179,8 @@ class ScheduleItem(Base):
 
 class FinalScheduleItem(Base):
     __tablename__ = "op_final_schedule"
+    __table_args__ = {'extend_existing': True}
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     lesson_id = Column(Integer, ForeignKey('op_lessons.id'))
     time_slot_id = Column(Integer, ForeignKey('ref_time_slots.id'))
@@ -191,23 +201,21 @@ class TemplateName(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String)
 
-class Lesson(Base):
-    __tablename__ = "op_lessons"
-    __table_args__ = {'extend_existing': True}   # позволяет переопределить таблицу, если она уже существует
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    subject_id = Column(Integer, ForeignKey('ref_subject.id'))
-    date = Column(Date)
-    student_count = Column(Integer)
-    time_slot_id = Column(Integer, ForeignKey('ref_time_slots.id'), nullable=True)
-    week_day = Column(Integer)           # день недели (1-7)
-    text = Column(String)                # примечание
-    type = Column(String)                # тип занятия (лекция, практика и т.д.)
+class TemplateItem(Base):
+    __tablename__ = "op_templates"
+    __table_args__ = {'extend_existing': True}
 
-    subject = relationship("Subject")
-    time_slot = relationship("TimeSlot")
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name_of_sample_id = Column(Integer, ForeignKey('op_name_of_sample.id'))
+    day_of_week_id = Column(Integer, ForeignKey('ref_days_of_the_week.id'))
+    time_slot_id = Column(Integer, ForeignKey('ref_time_slots.id'))
+    lesson_id = Column(Integer, ForeignKey('op_lessons.id'))
+    audience_id = Column(Integer, ForeignKey('ref_audiences.id'))
 
 class UserActivityLog(Base):
     __tablename__ = "op_user_activity_logs"
+    __table_args__ = {'extend_existing': True}
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('ref_users.id'), nullable=True)
     action_type = Column(String)
@@ -215,44 +223,3 @@ class UserActivityLog(Base):
     ip_address = Column(String)
     user_agent = Column(String)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-from sqlalchemy import Table, Column, Integer, Boolean, ForeignKey
-
-# ... (остальные модели)
-
-# Связующие таблицы
-op_teachers_groups = Table(
-    'op_teachers_groups',
-    Base.metadata,
-    Column('teachers_id', Integer, ForeignKey('ref_teachers.id'), primary_key=True),
-    Column('groups_id', Integer, ForeignKey('ref_groups.id'), primary_key=True),
-    extend_existing=True
-)
-
-op_teachers_of_pairs = Table(
-    'op_teachers_of_pairs',
-    Base.metadata,
-    Column('teacher_id', Integer, ForeignKey('ref_teachers.id'), primary_key=True),
-    Column('subject_id', Integer, ForeignKey('ref_subject.id'), primary_key=True),
-    Column('is_main', Boolean, default=False),
-    extend_existing=True
-)
-
-op_audiences_of_pairs = Table(
-    'op_audiences_of_pairs',
-    Base.metadata,
-    Column('audience_id', Integer, ForeignKey('ref_audiences.id'), primary_key=True),
-    Column('subject_id', Integer, ForeignKey('ref_subject.id'), primary_key=True),
-    extend_existing=True
-)
-
-op_groups_of_pairs = Table(
-    'op_groups_of_pairs',
-    Base.metadata,
-    Column('group_id', Integer, ForeignKey('ref_groups.id'), primary_key=True),
-    Column('subject_id', Integer, ForeignKey('ref_subject.id'), primary_key=True),
-    extend_existing=True
-)
-
-
-

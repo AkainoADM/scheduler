@@ -77,3 +77,34 @@ async def generate(db: AsyncSession = Depends(get_db)):
     if result["count"] == 0:
         return {"status": "error", "message": "Недостаточно данных"}
     return result
+
+@router.get("/schedule")
+async def get_schedule(db: AsyncSession = Depends(get_db)):
+    items_result = await db.execute(
+        select(ScheduleItem).options(
+            selectinload(ScheduleItem.lesson).selectinload(Lesson.subject),
+            selectinload(ScheduleItem.lesson).selectinload(Lesson.group),  # новое
+            selectinload(ScheduleItem.audience),
+            selectinload(ScheduleItem.time_slot)
+        )
+    )
+    items = items_result.scalars().all()
+    schedule_data = []
+    for item in items:
+        lesson = item.lesson
+        subject = lesson.subject if lesson else None
+        group = lesson.group if lesson else None
+        # Получаем преподавателей из subject.teachers (many-to-many)
+        teacher_names = ", ".join(t.name for t in subject.teachers) if subject and subject.teachers else "Не назначен"
+        schedule_data.append({
+            "subject": subject.name if subject else "---",
+            "teacher": teacher_names,
+            "group": group.name if group else "Не указана",  # новое поле
+            "audience": item.audience.name if item.audience else "---",
+            "date": str(item.date) if item.date else "---",
+            "pair": item.time_slot.slot_number if item.time_slot else None,
+            "time": f"{item.time_slot.start_time} - {item.time_slot.end_time}" if item.time_slot else "---",
+            "id": item.id,
+            "is_pinned": item.is_pinned
+        })
+    return schedule_data

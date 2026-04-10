@@ -5,6 +5,7 @@ from fastapi import FastAPI, Depends, Form, Request, BackgroundTasks, HTTPExcept
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+import httpx
 
 from app.api.v1 import router as v1_router
 from app.core.database import get_db
@@ -12,12 +13,12 @@ from app.services import calendar_sync
 from app.schemas.calendar import CalendarCreate, CalendarUpdate
 from app.services import calendar as calendar_service
 
-# Импортируем админский роутер
-from app.routers import admin_views
+# Импорт админского роутера должен быть до его использования
+from app.routers.admin import router as admin_router
 
 app = FastAPI(title="Schedule Generation System")
 app.include_router(v1_router)
-app.include_router(admin_views.router)
+app.include_router(admin_router)  # теперь admin_router определён
 
 @app.get("/")
 async def root():
@@ -33,9 +34,6 @@ async def db_check(db: AsyncSession = Depends(get_db)):
     result = await db.execute(text("SELECT version()"))
     version = result.scalar()
     return {"postgres_version": version}
-
-# Прокси на старый сервер (оставьте, если нужно)
-import httpx
 
 @app.get("/generate-schedule")
 async def generate_schedule():
@@ -86,3 +84,29 @@ async def my_schedule_old(request: Request):
         html += "</table>"
     html += "<p><a href='/'>На главную</a></p>"
     return HTMLResponse(content=html)
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",  # иногда Vite использует другой порт
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "traceback": traceback.format_exc()}
+    )
