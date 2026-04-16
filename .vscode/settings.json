@@ -1,10 +1,4 @@
 {
-    "python-envs.pythonProjects": [
-        {
-            "path": ".",
-            "envManager": "ms-python.python:venv",
-            "packageManager": "ms-python.python:pip"
-        }
-    ],
-    "python.terminal.activateEnvInCurrentTerminal": true
+  "python.analysis.extraPaths": ["./backend", "./CRUD"],
+  "python.defaultInterpreterPath": "/путь/к/твоему/venv/bin/python"
 }

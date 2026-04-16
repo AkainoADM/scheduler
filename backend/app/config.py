@@ -1,0 +1,16 @@
+
+# app/config.py
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    DATABASE_URL: str = "postgresql://postgres:123@localhost:5432/schedule"
+    DATE_FORMAT: str = "%d.%m.%Y"
+    SECRET_KEY: str | None = None
+    DEBUG: bool = False
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+    }
+
+settings = Settings()

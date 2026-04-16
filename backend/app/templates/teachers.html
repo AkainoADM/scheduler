@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Преподаватели</title>
+</head>
+<body>
+    <h1>Преподаватели</h1>
+    <form method="post" action="/teachers/add">
+        <input type="text" name="login" placeholder="Логин" required>
+        <input type="text" name="name" placeholder="ФИО" required>
+        <input type="text" name="url" placeholder="Ссылка на страницу">
+        <input type="number" name="max_hours_per_day" placeholder="Макс. часов в день">
+        <input type="number" name="max_hours_per_week" placeholder="Макс. часов в неделю">
+        <button type="submit">Добавить</button>
+    </form>
+    <ul>
+        {% for t in teachers %}
+        <li>{{ t.name }} (Логин: {{ t.login }}, День: {{ t.max_hours_per_day or 'нет' }}, Неделя: {{ t.max_hours_per_week or 'нет' }})</li>
+        {% endfor %}
+    </ul>
+    <a href="/">На главную</a>
+</body>
+</html>
